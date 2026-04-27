@@ -5,6 +5,7 @@ const base64_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz012345
 pub const SourceMap = struct {
     mappings: std.ArrayListUnmanaged(Mapping),
     sources: std.ArrayListUnmanaged([]const u8),
+    sources_content: std.ArrayListUnmanaged(?[]const u8),
     source_root: ?[]const u8 = null,
     alloc: std.mem.Allocator,
 
@@ -17,19 +18,26 @@ pub const SourceMap = struct {
     };
 
     pub fn init(alloc: std.mem.Allocator) SourceMap {
-        return .{ .mappings = .empty, .sources = .empty, .alloc = alloc };
+        return .{
+            .mappings = .empty,
+            .sources = .empty,
+            .sources_content = .empty,
+            .alloc = alloc,
+        };
     }
 
     pub fn deinit(self: *SourceMap) void {
         self.mappings.deinit(self.alloc);
         self.sources.deinit(self.alloc);
+        self.sources_content.deinit(self.alloc);
     }
 
-    pub fn addSource(self: *SourceMap, source: []const u8) !u32 {
+    pub fn addSource(self: *SourceMap, source: []const u8, content: ?[]const u8) !u32 {
         for (self.sources.items, 0..) |existing, i| {
             if (std.mem.eql(u8, existing, source)) return @intCast(i);
         }
         try self.sources.append(self.alloc, source);
+        try self.sources_content.append(self.alloc, content);
         return @intCast(self.sources.items.len - 1);
     }
 
@@ -44,18 +52,33 @@ pub const SourceMap = struct {
         const mappings_json = try encodeMappingsAlloc(self);
         defer self.alloc.free(mappings_json);
 
+        var has_content = false;
+        for (self.sources_content.items) |c| {
+            if (c != null) { has_content = true; break; }
+        }
+
+        const content_json: ?[]const u8 = if (has_content) try encodeSourcesContentAlloc(self) else null;
+        defer if (content_json) |c| self.alloc.free(c);
+
         if (self.source_root) |root| {
-            var root_escaped = std.ArrayListUnmanaged(u8).empty;
-            defer root_escaped.deinit(self.alloc);
-            try appendJsonEscaped(&root_escaped, self.alloc, root);
-            return std.fmt.allocPrint(
-                self.alloc,
+            if (content_json) |c| {
+                return std.fmt.allocPrint(self.alloc,
+                    "{{\"version\":3,\"sourceRoot\":\"{s}\",\"sources\":[{s}],\"sourcesContent\":[{s}],\"names\":[],\"mappings\":\"{s}\"}}",
+                    .{ root, sources_json, c, mappings_json },
+                );
+            }
+            return std.fmt.allocPrint(self.alloc,
                 "{{\"version\":3,\"sourceRoot\":\"{s}\",\"sources\":[{s}],\"names\":[],\"mappings\":\"{s}\"}}",
-                .{ root_escaped.items, sources_json, mappings_json },
+                .{ root, sources_json, mappings_json },
             );
         }
-        return std.fmt.allocPrint(
-            self.alloc,
+        if (content_json) |c| {
+            return std.fmt.allocPrint(self.alloc,
+                "{{\"version\":3,\"sources\":[{s}],\"sourcesContent\":[{s}],\"names\":[],\"mappings\":\"{s}\"}}",
+                .{ sources_json, c, mappings_json },
+            );
+        }
+        return std.fmt.allocPrint(self.alloc,
             "{{\"version\":3,\"sources\":[{s}],\"names\":[],\"mappings\":\"{s}\"}}",
             .{ sources_json, mappings_json },
         );
@@ -69,6 +92,21 @@ fn encodeSourcesAlloc(sm: *const SourceMap) ![]const u8 {
         try out.append(sm.alloc, '"');
         try appendJsonEscaped(&out, sm.alloc, source);
         try out.append(sm.alloc, '"');
+    }
+    return out.toOwnedSlice(sm.alloc);
+}
+
+fn encodeSourcesContentAlloc(sm: *const SourceMap) ![]const u8 {
+    var out = std.ArrayListUnmanaged(u8).empty;
+    for (sm.sources_content.items, 0..) |content, i| {
+        if (i > 0) try out.append(sm.alloc, ',');
+        if (content) |c| {
+            try out.append(sm.alloc, '"');
+            try appendJsonEscaped(&out, sm.alloc, c);
+            try out.append(sm.alloc, '"');
+        } else {
+            try out.appendSlice(sm.alloc, "null");
+        }
     }
     return out.toOwnedSlice(sm.alloc);
 }

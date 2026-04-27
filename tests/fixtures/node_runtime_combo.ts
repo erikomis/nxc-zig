@@ -1,4 +1,5 @@
-const extras = ["b", ...(Math.random() > -1 ? ["c"] : [])];
+const extras = ["b", ...((Math.random() > -1 ? ["c"] : []))];
+
 
 function readValues({ a, b } = { a: 4, b: 6 }) {
   return { a, b };
@@ -18,9 +19,9 @@ class Runner {
 async function main() {
   const runner = new Runner();
   const result = await runner.compute(undefined);
-  if (result !== 11) 
-    throw new Error(`unexpected:${result}`);
+  if (result !== 11) throw new Error(`unexpected:${result}`);
   console.log(`ok:${result}`);
 }
 
 main();
+

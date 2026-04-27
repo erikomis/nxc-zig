@@ -17,7 +17,7 @@ pub const ParseOptions = struct {
     source_type: ast.SourceType = .module,
     check: bool = true,
     max_depth: u32 = 2048,
-    max_iterations: u32 = 1_000_000,
+
 };
 
 pub const Parser = struct {
@@ -35,7 +35,7 @@ pub const Parser = struct {
     loop_depth: usize,
     switch_depth: usize,
     parse_depth: u32,
-    iteration_count: u32,
+
 
     const DeclKind = enum {
         var_binding,
@@ -116,7 +116,7 @@ pub const Parser = struct {
             .loop_depth = 0,
             .switch_depth = 0,
             .parse_depth = 0,
-            .iteration_count = 0,
+
         };
     }
 
@@ -636,7 +636,7 @@ pub const Parser = struct {
 
         var body = std.ArrayListUnmanaged(NodeId).empty;
         while (!self.check(.eof)) {
-            try self.checkIterations();
+
             const stmt = try self.parseModuleItem();
             try body.append(self.alloc, stmt);
         }
@@ -713,7 +713,7 @@ pub const Parser = struct {
 
         var stmts = std.ArrayListUnmanaged(NodeId).empty;
         while (!self.check(.rbrace) and !self.check(.eof)) {
-            try self.checkIterations();
+
             try stmts.append(self.alloc, try self.parseStatement());
         }
         _ = try self.expect(.rbrace);
@@ -767,7 +767,8 @@ pub const Parser = struct {
             try decls.append(self.alloc, .{ .id = id, .init = init_val, .type_ann = type_ann, .span = kw.span });
             if (self.eatIf(.comma) == null) break;
         }
-        if (eat_semi) self.eatSemiOnlyIfSameLine();
+        if (eat_semi) _ = self.eatIf(.semicolon);
+
         return self.arena.push(.{ .var_decl = .{
             .kind = kind,
             .declarators = try decls.toOwnedSlice(self.alloc),
@@ -836,7 +837,7 @@ pub const Parser = struct {
         var param_access = std.ArrayListUnmanaged(?ast.Accessibility).empty;
         var param_readonly = std.ArrayListUnmanaged(bool).empty;
         while (!self.check(.rparen) and !self.check(.eof)) {
-            try self.checkIterations();
+
             // TypeScript `this` parameters are type-only and do not exist at runtime.
             if (self.opts.typescript and params.items.len == 0 and self.check(.kw_this)) {
                 _ = self.eat();
@@ -950,7 +951,8 @@ pub const Parser = struct {
 
     fn parseExprStmt(self: *Parser) !NodeId {
         const expr = try self.parseExpr();
-        self.eatSemiOnlyIfSameLine();
+        _ = self.eatIf(.semicolon);
+
         const sp = self.arena.get(expr).span();
         return self.arena.push(.{ .expr_stmt = .{ .expr = expr, .span = sp } });
     }
@@ -1469,14 +1471,13 @@ pub const Parser = struct {
                 } else break,
                 .lt => if (self.opts.typescript) {
                     if (try self.tryParseTypeArgsBeforeCall()) |type_args| {
-                        if (self.check(.lparen)) {
-                            const args = try self.parseCallArgs();
-                            const sp = self.arena.get(node).span();
-                            node = try self.arena.push(.{ .call_expr = .{ .callee = node, .type_args = type_args, .args = args, .optional = false, .span = sp } });
-                        } else {
-                            const sp = self.arena.get(node).span();
-                            node = try self.arena.push(.{ .ts_instantiation = .{ .expr = node, .type_args = type_args, .span = sp } });
-                        }
+                        const args = try self.parseCallArgs();
+                        const sp = self.arena.get(node).span();
+                        node = try self.arena.push(.{ .call_expr = .{ .callee = node, .type_args = type_args, .args = args, .optional = false, .span = sp } });
+                    } else if (try self.tryParseInstantiationExprTypeArgs()) |type_args| {
+                        const sp = self.arena.get(node).span();
+                        node = try self.arena.push(.{ .ts_instantiation = .{ .expr = node, .type_args = type_args, .span = sp } });
+
                     } else break;
                 } else break,
                 .template_head, .template_no_sub => {
@@ -2307,7 +2308,7 @@ pub const Parser = struct {
         defer seen_fields.deinit(self.alloc);
         var has_constructor_impl = false;
         while (!self.check(.rbrace) and !self.check(.eof)) {
-            try self.checkIterations();
+
             _ = self.eatIf(.semicolon);
             if (self.check(.rbrace)) break;
             const member = try self.parseClassMember();
@@ -2720,7 +2721,7 @@ pub const Parser = struct {
     }
 
     fn parseBindingPattern(self: *Parser) anyerror!NodeId {
-        try self.checkDepth();
+
         return switch (self.cur().kind) {
             .lbrace => self.parseObjectPat(),
             .lbracket => self.parseArrayPat(),
@@ -2810,7 +2811,7 @@ pub const Parser = struct {
     }
 
     fn parseTsType(self: *Parser) anyerror!NodeId {
-        try self.checkDepth();
+
         const base = try self.parseTsUnionType();
         // type predicate: `x is T` or `this is T` (return type annotation)
         if (self.check(.kw_is)) {
@@ -3278,12 +3279,14 @@ pub const Parser = struct {
             self.diags.items.items.len = diag_len;
             return null;
         };
-        if (self.check(.lparen)) return type_args;
-        if (canFollowTsInstantiationExpr(self.cur().kind)) return type_args;
-        self.restoreLexer(snap);
-        self.arena.nodes.items.len = arena_len;
-        self.diags.items.items.len = diag_len;
-        return null;
+        if (!self.check(.lparen)) {
+            self.restoreLexer(snap);
+            self.arena.nodes.items.len = arena_len;
+            self.diags.items.items.len = diag_len;
+            return null;
+        }
+        return type_args;
+
     }
 
     fn canFollowTsInstantiationExpr(kind: TokenKind) bool {
@@ -3973,26 +3976,6 @@ pub const Parser = struct {
         return self.cur().span.line > prev.span.line;
     }
 
-    fn eatSemiOnlyIfSameLine(self: *Parser) void {
-        if (self.check(.semicolon)) {
-            const semi = self.cur();
-            // Scan backwards from the semicolon position for a newline.
-            // If we find a newline (separated only by whitespace), skip eating.
-            var pos: usize = semi.span.start;
-            var found_newline = false;
-            while (pos > 0) {
-                pos -= 1;
-                switch (self.src[pos]) {
-                    '\n' => { found_newline = true; break; },
-                    ' ', '\t', '\r' => continue,
-                    else => break,
-                }
-            }
-            if (!found_newline) {
-                _ = self.eat();
-            }
-        }
-    }
 
     fn checkDepth(self: *Parser) !void {
         self.parse_depth += 1;
@@ -4002,13 +3985,6 @@ pub const Parser = struct {
         }
     }
 
-    fn checkIterations(self: *Parser) !void {
-        self.iteration_count += 1;
-        if (self.iteration_count > self.opts.max_iterations) {
-            try self.emitErrorAtSpan(self.cur().span, "possible infinite loop detected — max iterations exceeded");
-            return error.PossibleInfiniteLoop;
-        }
-    }
 
     pub fn getCurrentDepth(self: *const Parser) u32 {
         return self.parse_depth;

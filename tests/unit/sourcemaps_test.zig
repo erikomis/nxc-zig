@@ -9,7 +9,7 @@ test "SourceMap emits valid sourcemap json with escaped sources and sourceRoot" 
     defer sm.deinit();
 
     sm.source_root = "src\\root";
-    const source_idx = try sm.addSource("foo\\bar\".zig");
+    const source_idx = try sm.addSource("foo\\bar\".zig", null);
     try std.testing.expectEqual(@as(u32, 0), source_idx);
 
     try sm.addMapping(.{
@@ -33,7 +33,7 @@ test "SourceMap sorts mappings before VLQ encoding" {
     var sm = SourceMap.init(std.testing.allocator);
     defer sm.deinit();
 
-    const source_idx = try sm.addSource("foo.zig");
+    const source_idx = try sm.addSource("foo.zig", null);
 
     try sm.addMapping(.{
         .gen_line = 1,
@@ -63,7 +63,7 @@ test "SourceMap encodes multi-line mappings correctly" {
     var sm = SourceMap.init(std.testing.allocator);
     defer sm.deinit();
 
-    const si = try sm.addSource("test.ts");
+    const si = try sm.addSource("test.ts", null);
 
     try sm.addMapping(.{ .gen_line = 0, .gen_col = 0, .source_idx = si, .src_line = 0, .src_col = 0 });
     try sm.addMapping(.{ .gen_line = 1, .gen_col = 0, .source_idx = si, .src_line = 1, .src_col = 0 });
@@ -81,7 +81,7 @@ test "SourceMap handles no mappings gracefully" {
     var sm = SourceMap.init(std.testing.allocator);
     defer sm.deinit();
 
-    _ = try sm.addSource("empty.ts");
+    _ = try sm.addSource("empty.ts", null);
     const json = try sm.toJsonAlloc();
     defer std.testing.allocator.free(json);
 
@@ -95,8 +95,8 @@ test "SourceMap with multiple sources" {
     var sm = SourceMap.init(std.testing.allocator);
     defer sm.deinit();
 
-    const s0 = try sm.addSource("a.ts");
-    const s1 = try sm.addSource("b.ts");
+    const s0 = try sm.addSource("a.ts", null);
+    const s1 = try sm.addSource("b.ts", null);
 
     try sm.addMapping(.{ .gen_line = 0, .gen_col = 0, .source_idx = s0, .src_line = 0, .src_col = 0 });
     try sm.addMapping(.{ .gen_line = 0, .gen_col = 5, .source_idx = s1, .src_line = 3, .src_col = 1 });

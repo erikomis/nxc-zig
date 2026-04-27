@@ -14,10 +14,12 @@ pub const CodegenOptions = struct {
     source_map: bool = false,
     source_name: []const u8 = "",
     source_root: ?[]const u8 = null,
+    source_content: ?[]const u8 = null,
     keep_import_attributes: bool = false,
     import_attribute_syntax: ast.ImportAttributeSyntax = .with,
     remove_comments: bool = true,
     comments: []const Comment = &.{},
+    cjs_output: bool = false,
 };
 
 pub const Codegen = struct {
@@ -57,7 +59,7 @@ pub const Codegen = struct {
         if (opts.source_map) {
             var sm = sourcemap.SourceMap.init(alloc);
             sm.source_root = opts.source_root;
-            cg.source_idx = try sm.addSource(opts.source_name);
+            cg.source_idx = try sm.addSource(opts.source_name, opts.source_content);
             cg.source_map = sm;
         }
 

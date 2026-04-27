@@ -4,11 +4,12 @@ enum BlankSideEnum {
 }
 
 function Expose() {
-  return function() {};
+  return function () {};
 }
 
-function ApiValidateNested(_factory: any) {
-  return function() {};
+function ApiValidateNested(_factory: () => unknown) {
+  return function () {};
+
 }
 
 class AreaValue {}
@@ -17,7 +18,9 @@ export class Area {
   @Expose()
   @ApiValidateNested(() => AreaValue)
   [BlankSideEnum.FRONT]?: AreaValue;
+
   @Expose()
   @ApiValidateNested(() => AreaValue)
   [BlankSideEnum.BACK]?: AreaValue;
 }
+

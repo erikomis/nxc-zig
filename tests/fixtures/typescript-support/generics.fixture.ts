@@ -4,38 +4,45 @@ export function identity<T>(value: T): T {
 }
 
 // generic function with constraint
-export function getKey<T extends object, K extends T>(obj: T, key: K): T {
+export function getKey<T extends object, K extends keyof T>(obj: T, key: K): T[K] {
+
   return obj[key];
 }
 
 // generic async function with callback type
-export async function transactional<T>(cb: any): Promise<T> {
+export async function transactional<T>(cb: () => T): Promise<T> {
+
   return cb();
 }
 
 // generic class
 export class Repository<T> {
-  constructor(items = []) {}
-  add(item) {
+  constructor(private items: T[] = []) {}
+
+  add(item: T): void {
     this.items.push(item);
   }
-  getAll() {
+
+  getAll(): T[] {
+
     return this.items;
   }
 }
 
-
-
 // generic class with constructor type
-interface Ctor<T> {}
+interface Ctor<T> {
+  new (): T;
+}
+
 
 export function create<T>(C: Ctor<T>): T {
   return new C();
 }
 
 // NoInfer utility type usage
-export type NoInfer<T> = [T];
+export type NoInfer<T> = [T][T extends any ? 0 : never];
 
 export function setDefault<T>(value: T, fallback: NoInfer<T>): T {
   return value ?? fallback;
 }
+

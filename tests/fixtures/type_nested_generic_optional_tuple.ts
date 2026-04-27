@@ -1,8 +1,9 @@
-type FindOperatorType = any | any;
+type FindOperatorType = 'equal' | 'like';
 
 type ObjectLiteral = Record<string, unknown>;
 
-const map: Partial<Record<FindOperatorType, any>> = {
-  equal: () => ["="],
-  like: () => ["LIKE", { value: "%abc%" }],
+const map: Partial<Record<FindOperatorType, () => [string, ObjectLiteral?]>> = {
+  equal: () => ['='],
+  like: () => ['LIKE', { value: '%abc%' }],
 };
+

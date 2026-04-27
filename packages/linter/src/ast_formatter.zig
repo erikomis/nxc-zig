@@ -75,8 +75,7 @@ const Formatter = struct {
     comment_index: usize,
     pending_newlines: usize,
     in_jsx_attr: bool = false,
-    needs_leading_semicolon: bool = false,
-    skip_next_newline: bool = false,
+
 
     fn flushPendingNewlines(self: *Formatter) !void {
         if (self.pending_newlines == 0) return;
@@ -300,8 +299,6 @@ const Formatter = struct {
         const from = @min(@as(usize, prev_start), to);
         if (from >= to) { self.pending_newlines = @max(1, self.pending_newlines); return; }
 
-        const skip_newline = self.skip_next_newline;
-        self.skip_next_newline = false;
 
         var pos = from;
         var emitted_any = false;
@@ -368,7 +365,8 @@ const Formatter = struct {
         if (!emitted_any) {
             if (trailing_blanks > 0) {
                 self.pending_newlines = @max(self.pending_newlines, 1 + trailing_blanks);
-            } else if (!skip_newline) {
+            } else {
+
                 self.pending_newlines = @max(self.pending_newlines, 1);
             }
         } else {
@@ -399,9 +397,8 @@ const Formatter = struct {
                 try self.gen(s.expr);
                 if (self.opts.semi) try self.w(";");
             },
-            .empty_stmt => {
-                if (self.needs_leading_semicolon) try self.w(";");
-            },
+            .empty_stmt => {},
+
             .raw_js => |r| try self.w(r.code),
             .var_decl => |v| try self.genVarDecl(v),
             .fn_decl => |f| try self.genFnDecl(f),
@@ -547,15 +544,8 @@ const Formatter = struct {
             if (i > 0) {
                 try self.separateStatements(prev_stmt_start, stmt_start);
             }
-            if (stmt_node.* == .empty_stmt and i + 1 < p.body.len) {
-                const next_node = self.arena.get(p.body[i + 1]);
-                self.needs_leading_semicolon = self.needsLeadingSemicolon(next_node);
-                if (self.needs_leading_semicolon) {
-                    self.skip_next_newline = true;
-                }
-            }
             try self.gen(stmt);
-            self.needs_leading_semicolon = false;
+
             prev_stmt_start = stmt_start;
         }
         try self.emitRemainingComments();
@@ -573,15 +563,8 @@ const Formatter = struct {
             } else {
                 try self.separateStatements(prev_stmt_start, stmt_start);
             }
-            if (stmt_node.* == .empty_stmt and i + 1 < b.body.len) {
-                const next_node = self.arena.get(b.body[i + 1]);
-                self.needs_leading_semicolon = self.needsLeadingSemicolon(next_node);
-                if (self.needs_leading_semicolon) {
-                    self.skip_next_newline = true;
-                }
-            }
             try self.gen(stmt);
-            self.needs_leading_semicolon = false;
+
             prev_stmt_start = stmt_start;
         }
         if (self.findClosingBrace(b.span.start)) |close_brace| {
@@ -1302,34 +1285,6 @@ const Formatter = struct {
         };
     }
 
-    fn needsLeadingSemicolon(self: *const Formatter, stmt_node: *const Node) bool {
-        const expr = switch (stmt_node.*) {
-            .expr_stmt => |s| self.arena.get(s.expr),
-            .var_decl => |v| if (v.declarators.len > 0) self.arena.get(v.declarators[0].id) else return false,
-            else => return false,
-        };
-        return self.exprStartsWithASISensitive(expr);
-    }
-
-    fn exprStartsWithASISensitive(self: *const Formatter, node: *const Node) bool {
-        return switch (node.*) {
-            .call_expr => |c| blk: {
-                const callee = self.arena.get(c.callee);
-                break :blk calleeNeedsParens(callee) or self.exprStartsWithASISensitive(callee);
-            },
-            .member_expr => |m| self.exprStartsWithASISensitive(self.arena.get(m.object)),
-            .array_expr => true,
-            .template_lit => true,
-            .tagged_template => true,
-            .seq_expr => |s| if (s.exprs.len > 0) self.exprStartsWithASISensitive(self.arena.get(s.exprs[0])) else false,
-            .unary_expr => |u| switch (u.op) {
-                .plus, .minus => true,
-                else => false,
-            },
-            .update_expr => |u| u.prefix,
-            else => false,
-        };
-    }
 
     fn genCall(self: *Formatter, c: ast.CallExpr) !void {
         const wrap_callee = calleeNeedsParens(self.arena.get(c.callee));

@@ -1,0 +1,11 @@
+.{
+    .name = .formatter,
+    .fingerprint = 0xba50a559c58e7833,
+    .version = "0.1.0",
+    .minimum_zig_version = "0.16.0",
+    .paths = .{"."},
+    .dependencies = .{
+        .linter = .{ .path = "../linter" },
+        .common = .{ .path = "../common" },
+    },
+}

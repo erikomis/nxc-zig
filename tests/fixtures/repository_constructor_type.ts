@@ -1,20 +1,26 @@
 export class Repository<T> {
-  constructor(private Entity: T) {}
-  create() {
+  constructor(private Entity: new () => T) {}
+
+  create(): T {
+
     return new this.Entity();
   }
 }
 
 export class ProtectedRepository<T> {
-  constructor(protected Entity: T) {}
-  create() {
+  constructor(protected Entity: new () => T) {}
+
+  create(): T {
+
     return new this.Entity();
   }
 }
 
 export class ReadonlyRepository<T> {
-  constructor(readonly Entity: T) {}
-  create() {
+  constructor(readonly Entity: new () => T) {}
+
+  create(): T {
+
     return new this.Entity();
   }
 }

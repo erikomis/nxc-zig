@@ -1,7 +1,11 @@
-interface User {}
+interface User {
+  id: number;
+  name: string;
+}
 
 type A = string | number;
-type UserKey = User;
+type UserKey = keyof User;
+
 
 export async function loadUser(key: UserKey, value: A): Promise<User> {
   return {
@@ -9,3 +13,4 @@ export async function loadUser(key: UserKey, value: A): Promise<User> {
     name: key,
   };
 }
+

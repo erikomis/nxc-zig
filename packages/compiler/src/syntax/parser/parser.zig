@@ -842,23 +842,21 @@ pub const Parser = struct {
             const spread = self.eatIf(.dotdotdot) != null;
             const pat = try self.parseBindingPattern();
             if (self.opts.typescript) _ = self.eatIf(.question);
-            var type_ann: ?NodeId = if (self.opts.typescript and self.check(.colon)) blk: {
+            const type_ann: ?NodeId = if (self.opts.typescript and self.check(.colon)) blk: {
+
                 _ = self.eat();
                 break :blk try self.parseTsType();
             } else null;
             const param = if (self.check(.eq)) blk: {
                 _ = self.eat();
                 const def = try self.parseAssignExpr();
-                const pat_with_default = try self.arena.push(.{ .assign_pat = .{
+                break :blk try self.arena.push(.{ .assign_pat = .{
+
                     .left = pat,
                     .right = def,
                     .span = self.arena.get(pat).span(),
                 } });
-                if (self.opts.typescript and type_ann == null and self.check(.colon)) {
-                    _ = self.eat();
-                    type_ann = try self.parseTsType();
-                }
-                break :blk pat_with_default;
+
             } else pat;
             const final = if (spread) try self.arena.push(.{ .rest_elem = .{
                 .argument = param,
@@ -1460,14 +1458,13 @@ pub const Parser = struct {
                 } else break,
                 .lt => if (self.opts.typescript) {
                     if (try self.tryParseTypeArgsBeforeCall()) |type_args| {
-                        if (self.check(.lparen)) {
-                            const args = try self.parseCallArgs();
-                            const sp = self.arena.get(node).span();
-                            node = try self.arena.push(.{ .call_expr = .{ .callee = node, .type_args = type_args, .args = args, .optional = false, .span = sp } });
-                        } else {
-                            const sp = self.arena.get(node).span();
-                            node = try self.arena.push(.{ .ts_instantiation = .{ .expr = node, .type_args = type_args, .span = sp } });
-                        }
+                        const args = try self.parseCallArgs();
+                        const sp = self.arena.get(node).span();
+                        node = try self.arena.push(.{ .call_expr = .{ .callee = node, .type_args = type_args, .args = args, .optional = false, .span = sp } });
+                    } else if (try self.tryParseInstantiationExprTypeArgs()) |type_args| {
+                        const sp = self.arena.get(node).span();
+                        node = try self.arena.push(.{ .ts_instantiation = .{ .expr = node, .type_args = type_args, .span = sp } });
+
                     } else break;
                 } else break,
                 .template_head, .template_no_sub => {
@@ -1762,7 +1759,8 @@ pub const Parser = struct {
                 return null;
             };
             if (self.opts.typescript) _ = self.eatIf(.question);
-            var type_ann: ?NodeId = if (self.opts.typescript and self.check(.colon)) blk: {
+            const type_ann: ?NodeId = if (self.opts.typescript and self.check(.colon)) blk: {
+
                 _ = self.eat();
                 break :blk self.parseTsType() catch {
                     self.restoreLexer(snap);
@@ -1779,17 +1777,8 @@ pub const Parser = struct {
                     self.diags.items.items.len = diag_len;
                     return null;
                 };
-                const pat_with_default = try self.arena.push(.{ .assign_pat = .{ .left = pat, .right = def, .span = self.arena.get(pat).span() } });
-                if (self.opts.typescript and type_ann == null and self.check(.colon)) {
-                    _ = self.eat();
-                    type_ann = self.parseTsType() catch {
-                        self.restoreLexer(snap);
-                        self.arena.nodes.items.len = arena_len;
-                        self.diags.items.items.len = diag_len;
-                        return null;
-                    };
-                }
-                break :blk pat_with_default;
+                break :blk try self.arena.push(.{ .assign_pat = .{ .left = pat, .right = def, .span = self.arena.get(pat).span() } });
+
             } else pat;
             const final = if (spread) try self.arena.push(.{ .rest_elem = .{ .argument = param, .span = self.arena.get(param).span() } }) else param;
             try params.append(self.alloc, final);
@@ -1838,19 +1827,16 @@ pub const Parser = struct {
             const spread = self.eatIf(.dotdotdot) != null;
             const pat = try self.parseBindingPattern();
             _ = self.eatIf(.question);
-            var type_ann: ?NodeId = if (self.check(.colon)) blk: {
+            const type_ann: ?NodeId = if (self.check(.colon)) blk: {
+
                 _ = self.eat();
                 break :blk try self.parseTsType();
             } else null;
             const param = if (self.check(.eq)) blk: {
                 _ = self.eat();
                 const def = try self.parseAssignExpr();
-                const pat_with_default = try self.arena.push(.{ .assign_pat = .{ .left = pat, .right = def, .span = self.arena.get(pat).span() } });
-                if (type_ann == null and self.check(.colon)) {
-                    _ = self.eat();
-                    type_ann = try self.parseTsType();
-                }
-                break :blk pat_with_default;
+                break :blk try self.arena.push(.{ .assign_pat = .{ .left = pat, .right = def, .span = self.arena.get(pat).span() } });
+
             } else pat;
             const final = if (spread) try self.arena.push(.{ .rest_elem = .{ .argument = param, .span = self.arena.get(param).span() } }) else param;
             try params.append(self.alloc, final);
@@ -1969,19 +1955,16 @@ pub const Parser = struct {
                 const spread = self.eatIf(.dotdotdot) != null;
                 const pat = try self.parseBindingPattern();
                 if (self.opts.typescript) _ = self.eatIf(.question);
-                var type_ann: ?NodeId = if (self.opts.typescript and self.check(.colon)) blk: {
+                const type_ann: ?NodeId = if (self.opts.typescript and self.check(.colon)) blk: {
+
                     _ = self.eat();
                     break :blk try self.parseTsType();
                 } else null;
                 const param = if (self.check(.eq)) blk: {
                     _ = self.eat();
                     const def = try self.parseAssignExpr();
-                    const pat_with_default = try self.arena.push(.{ .assign_pat = .{ .left = pat, .right = def, .span = self.arena.get(pat).span() } });
-                    if (self.opts.typescript and type_ann == null and self.check(.colon)) {
-                        _ = self.eat();
-                        type_ann = try self.parseTsType();
-                    }
-                    break :blk pat_with_default;
+                    break :blk try self.arena.push(.{ .assign_pat = .{ .left = pat, .right = def, .span = self.arena.get(pat).span() } });
+
                 } else pat;
                 const final = if (spread) try self.arena.push(.{ .rest_elem = .{ .argument = param, .span = self.arena.get(param).span() } }) else param;
                 try params.append(self.alloc, final);
@@ -2730,7 +2713,7 @@ pub const Parser = struct {
     }
 
     fn parseBindingPattern(self: *Parser) anyerror!NodeId {
-        try self.checkDepth();
+
         return switch (self.cur().kind) {
             .lbrace => self.parseObjectPat(),
             .lbracket => self.parseArrayPat(),
@@ -2820,7 +2803,7 @@ pub const Parser = struct {
     }
 
     fn parseTsType(self: *Parser) anyerror!NodeId {
-        try self.checkDepth();
+
         const base = try self.parseTsUnionType();
         // type predicate: `x is T` or `this is T` (return type annotation)
         if (self.check(.kw_is)) {
@@ -3288,12 +3271,14 @@ pub const Parser = struct {
             self.diags.items.items.len = diag_len;
             return null;
         };
-        if (self.check(.lparen)) return type_args;
-        if (canFollowTsInstantiationExpr(self.cur().kind)) return type_args;
-        self.restoreLexer(snap);
-        self.arena.nodes.items.len = arena_len;
-        self.diags.items.items.len = diag_len;
-        return null;
+        if (!self.check(.lparen)) {
+            self.restoreLexer(snap);
+            self.arena.nodes.items.len = arena_len;
+            self.diags.items.items.len = diag_len;
+            return null;
+        }
+        return type_args;
+
     }
 
     fn canFollowTsInstantiationExpr(kind: TokenKind) bool {

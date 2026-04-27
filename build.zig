@@ -3,6 +3,7 @@ const std = @import("std");
 const common_build = @import("packages/common/build.zig");
 const linter_build = @import("packages/linter/build.zig");
 const compiler_build = @import("packages/compiler/build.zig");
+const formatter_build = @import("packages/formatter/build.zig");
 const cli_build = @import("packages/cli/build.zig");
 
 pub fn build(b: *std.Build) void {
@@ -31,6 +32,8 @@ pub fn build(b: *std.Build) void {
     // ── N-API native addons ─────────────────────────
 
     linter_build.addLintAddon(b, target, optimize, linter.module, common.module);
+    formatter_build.addFormatterAddon(b, target, optimize, linter.module, common.module);
+
     compiler_build.addParserAddon(b, target, optimize, compiler.modules.compiler);
     compiler_build.addTransformAddon(b, target, optimize, compiler.modules.compiler);
 
@@ -52,7 +55,8 @@ pub fn build(b: *std.Build) void {
     package_linter_tests_mod.addImport("common", common.module);
 
     const package_formatter_tests_mod = b.createModule(.{
-        .root_source_file = b.path("packages/linter/tests/formatter/formatter.zig"),
+        .root_source_file = b.path("packages/formatter/tests/formatter.zig"),
+
         .target = target,
         .optimize = optimize,
     });
@@ -175,22 +179,17 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run all tests");
     test_step.dependOn(&b.addRunArtifact(unit_tests).step);
 
-    // Inline test blocks from source files (not included in test_root.zig)
+    // Inline test blocks from source files
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = compiler.modules.lexer })).step);
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = cli_main_mod })).step);
 
-    // ── Bench step ───────────────────────────────────
+    // Package test runners (run independently in addition to being in unit_tests)
+    test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = package_linter_tests_mod })).step);
+    test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = package_formatter_tests_mod })).step);
+    test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = package_compiler_tests_mod })).step);
+    test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = package_common_tests_mod })).step);
+    test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = package_cli_tests_mod })).step);
 
-    const bench_module = b.createModule(.{
-        .root_source_file = b.path("tests/bench/bench.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    bench_module.addImport("compiler", compiler.modules.compiler);
-    bench_module.addImport("linter", linter.module);
-
-    const bench_step = b.step("bench", "Run benchmarks");
-    bench_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = bench_module })).step);
 
     // ── Run step ────────────────────────────────────
 
@@ -231,10 +230,22 @@ pub fn build(b: *std.Build) void {
     linter_bin.addImport("linter", linter.module);
     linter_bin.addImport("cache", linter_cache_mod);
 
+    const formatter_bin = b.createModule(.{
+        .root_source_file = b.path("packages/cli/src/formatter_main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    formatter_bin.addImport("cli", cli.cli);
+    formatter_bin.addImport("common", common.module);
+    formatter_bin.addImport("linter", linter.module);
+
     const compiler_exe = b.addExecutable(.{ .name = "nxc-compiler", .root_module = compiler_bin });
     const linter_exe = b.addExecutable(.{ .name = "nxc-linter", .root_module = linter_bin });
+    const formatter_exe = b.addExecutable(.{ .name = "nxc-formatter", .root_module = formatter_bin });
     b.installArtifact(compiler_exe);
     b.installArtifact(linter_exe);
+    b.installArtifact(formatter_exe);
+
 
     const run_cmd = b.addRunArtifact(compiler_exe);
     run_cmd.step.dependOn(b.getInstallStep());

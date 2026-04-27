@@ -11,13 +11,21 @@ const codegen_tests = @import("unit/codegen_test.zig");
 const parser_tests = @import("unit/parser_test.zig");
 const sourcemaps_tests = @import("unit/sourcemaps_test.zig");
 const paths_tests = @import("unit/paths_test.zig");
-const formatter_leading_semi_tests = @import("unit/formatter_leading_semi_test.zig");
+
 const cli_tests = @import("integration/cli_test.zig");
 const package_compiler_tests = @import("package_compiler_tests");
 const package_linter_tests = @import("package_linter_tests");
 const package_formatter_tests = @import("package_formatter_tests");
 const package_cli_tests = @import("package_cli_tests");
 const package_common_tests = @import("package_common_tests");
+
+const fuzz_tests = @import("fuzz/fuzz.zig");
+const bench_tests = @import("bench/bench.zig");
+const diff_tests = @import("diff/diff_test.zig");
+const stress_tests = @import("stress/stress_test.zig");
+const memory_tests = @import("memory/memory_test.zig");
+const concurrency_tests = @import("concurrency/concurrency_test.zig");
+
 
 comptime {
     _ = lexer_tests;
@@ -32,7 +40,7 @@ comptime {
     _ = codegen_tests;
     _ = parser_tests;
     _ = paths_tests;
-    _ = formatter_leading_semi_tests;
+
     _ = sourcemaps_tests;
     _ = cli_tests;
     _ = package_compiler_tests;
@@ -40,4 +48,12 @@ comptime {
     _ = package_formatter_tests;
     _ = package_cli_tests;
     _ = package_common_tests;
+
+    _ = fuzz_tests;
+    _ = bench_tests;
+    _ = diff_tests;
+    _ = stress_tests;
+    _ = memory_tests;
+    _ = concurrency_tests;
+
 }

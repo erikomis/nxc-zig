@@ -428,10 +428,12 @@ pub fn compile(
     } else null;
 
     var cg = try codegen.Codegen.init(&node_arena, a, .{
-        .pretty = true,
+        .pretty = !cfg.minify,
+        .cjs_output = cfg.module.target == .cjs,
         .source_map = cfg.source_maps,
         .source_name = filename,
         .source_root = source_root,
+        .source_content = if (cfg.inline_sources) source else null,
         .keep_import_attributes = cfg.keep_import_attributes,
         .import_attribute_syntax = switch (cfg.target) {
             .es2020, .es2022 => .assert,

@@ -1,3 +1,6 @@
-export function renderEmail({ footerText = "" } = {}: object) {
+export function renderEmail(
+  { footerText = "" }: { footerText?: string } = {}
+) {
   return footerText;
 }
+

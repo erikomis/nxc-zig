@@ -1,14 +1,15 @@
 // Simula enum (caso comum)
 export enum StoreTypeEnum {
   MARKETPLACE = "marketplace",
-  STORE = "store"
+  STORE = "store",
 }
 
 // Tambem cobre outros formatos equivalentes
-export type StoreTypeUnion = any | any;
+export type StoreTypeUnion = "marketplace" | "store";
 
 export namespace Types {
-  export type StoreType = any | any;
+  export type StoreType = "marketplace" | "store";
+
 }
 
 // Caso principal (o seu erro)
@@ -29,7 +30,8 @@ export const fn2 = (type: Types.StoreType) => {
 };
 
 // Retorno tipado
-export const fn3 = (type: StoreTypeEnum) => {
+export const fn3 = (type: StoreTypeEnum): number => {
+
   return 1;
 };
 
@@ -42,12 +44,14 @@ export const fn4 = (a: number, type: StoreTypeEnum, b: string) => {
 export const fn5 = (type: StoreTypeEnum) => type;
 
 // Default value
-export const fn6 = (type = StoreTypeEnum.MARKETPLACE: StoreTypeEnum) => {
+export const fn6 = (type: StoreTypeEnum = StoreTypeEnum.MARKETPLACE) => {
+
   return type;
 };
 
 // Optional parameter
-export const fn7 = (type: StoreTypeEnum) => {
+export const fn7 = (type?: StoreTypeEnum) => {
+
   return type;
 };
 
@@ -57,6 +61,7 @@ export const fn8 = (...types: StoreTypeEnum[]) => {
 };
 
 // Com destructuring (edge)
-export const fn9 = ({ type }: object) => {
+export const fn9 = ({ type }: { type: StoreTypeEnum }) => {
   return type;
 };
+

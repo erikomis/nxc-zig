@@ -11,8 +11,9 @@ export function isAllowed(role: string): boolean {
 // arrow functions in array methods
 const items = [{ id: 1, name: "Alice" }, { id: 2, name: "Bob" }];
 
-export const names = items.map((item) => item.name);
-export const filtered = items.filter((item) => item.id > 1);
+export const names = items.map(item => item.name);
+export const filtered = items.filter(item => item.id > 1);
+
 export const ids = items.map(({ id }) => id);
 
 // async/await
@@ -25,3 +26,4 @@ export async function fetchData(url: string): Promise<string> {
 export async function parallel<T>(tasks: Promise<T>[]): Promise<T[]> {
   return Promise.all(tasks);
 }
+

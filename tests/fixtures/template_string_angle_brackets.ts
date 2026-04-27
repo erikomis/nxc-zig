@@ -1,3 +1,5 @@
+declare const senderName: string;
+declare const senderEmail: string;
 
 
 function htmlEscape(input: string): string {
@@ -30,4 +32,6 @@ const email10 = `<>`;
 const email11 = `<${senderEmail}>`;
 
 // Edge: com optional chaining dentro do template
+declare const user: { email?: string };
 const email12 = `<${user?.email}>`;
+

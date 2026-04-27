@@ -915,29 +915,23 @@ fn checkTrailingComma(source: []const u8, opts: common.FormatterOptions, msg: []
                             if (before == '{' and j > 1) {
                                 var k: usize = j - 1;
                                 while (k > 0 and (source[k - 1] == ' ' or source[k - 1] == '\t')) k -= 1;
-                                if (k > 0 and source[k - 1] == ')') {
-                                    if (source[i] == '\r' and i + 1 < source.len and source[i + 1] == '\n') i += 2 else i += 1;
-                                    continue;
-                                }
+                                if (k > 0 and source[k - 1] == ')') continue;
+
                                 const word_end = k;
                                 var word_start = word_end;
                                 while (word_start > 0 and (std.ascii.isAlphanumeric(source[word_start - 1]) or source[word_start - 1] == '$')) word_start -= 1;
                                 const word = source[word_start..word_end];
-                                 if (std.mem.eql(u8, word, "else") or
+                                if (std.mem.eql(u8, word, "else") or
                                     std.mem.eql(u8, word, "do") or
                                     std.mem.eql(u8, word, "try") or
-                                    std.mem.eql(u8, word, "finally")) {
-                                    if (source[i] == '\r' and i + 1 < source.len and source[i + 1] == '\n') i += 2 else i += 1;
-                                    continue;
-                                }
+                                    std.mem.eql(u8, word, "finally")) continue;
+
                                 while (word_start > 0 and (source[word_start - 1] == ' ' or source[word_start - 1] == '\t')) word_start -= 1;
                                 const prev_word_end = word_start;
                                 var prev_word_start = prev_word_end;
                                 while (prev_word_start > 0 and (std.ascii.isAlphanumeric(source[prev_word_start - 1]) or source[prev_word_start - 1] == '$')) prev_word_start -= 1;
-                                if (std.mem.eql(u8, source[prev_word_start..prev_word_end], "class")) {
-                                    if (source[i] == '\r' and i + 1 < source.len and source[i + 1] == '\n') i += 2 else i += 1;
-                                    continue;
-                                }
+                                if (std.mem.eql(u8, source[prev_word_start..prev_word_end], "class")) continue;
+
                             }
                             try diags.append(alloc, .{ .line_start = if (std.mem.lastIndexOfScalar(u8, source[0..j], '\n')) |nl| nl + 1 else @as(usize, 0), .line_end = i, .message = msg });
                         }
