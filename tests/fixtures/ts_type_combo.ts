@@ -1,0 +1,11 @@
+interface User {}
+
+type A = string | number;
+type UserKey = User;
+
+export async function loadUser(key: UserKey, value: A): Promise<User> {
+  return {
+    id: typeof value === "number" ? value : key.length,
+    name: key,
+  };
+}

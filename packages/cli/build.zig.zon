@@ -1,0 +1,12 @@
+.{
+    .name = .cli,
+    .fingerprint = 0x48f6513c4f2c5fa8,
+    .version = "0.1.0",
+    .minimum_zig_version = "0.16.0",
+    .paths = .{"."},
+    .dependencies = .{
+        .compiler = .{ .path = "../compiler" },
+        .linter = .{ .path = "../linter" },
+        .common = .{ .path = "../common" },
+    },
+}

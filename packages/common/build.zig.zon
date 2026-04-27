@@ -1,0 +1,7 @@
+.{
+    .name = .common,
+    .fingerprint = 0xe5ec7051c3349249,
+    .version = "0.1.0",
+    .minimum_zig_version = "0.16.0",
+    .paths = .{"."},
+}
