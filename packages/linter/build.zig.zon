@@ -1,0 +1,10 @@
+.{
+    .name = .linter,
+    .fingerprint = 0x7456b4f0e3165cdd,
+    .version = "0.1.0",
+    .minimum_zig_version = "0.16.0",
+    .paths = .{"."},
+    .dependencies = .{
+        .common = .{ .path = "../common" },
+    },
+}

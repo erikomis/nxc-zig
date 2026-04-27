@@ -1,0 +1,7 @@
+.{
+    .name = .compiler,
+    .fingerprint = 0xaa62bd49f356e08b,
+    .version = "0.1.0",
+    .minimum_zig_version = "0.16.0",
+    .paths = .{"."},
+}

@@ -1,0 +1,1 @@
+const items = [<A />, <B />];

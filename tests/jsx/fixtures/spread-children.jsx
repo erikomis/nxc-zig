@@ -1,0 +1,3 @@
+<Component>
+  {...children}
+</Component>
