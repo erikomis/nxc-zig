@@ -21,6 +21,7 @@ const usage =
     \\  --allow-js              Allow JavaScript files
     \\  --verbose               Verbose output
     \\  --profile               Show per-file compile times
+    \\  --bail                  Stop on first error
     \\  --config   <path>       Config file (default: tsconfig.json)
     \\  -h, --help              Show help
     \\  --version               Show version
@@ -42,6 +43,7 @@ pub fn main(init: std.process.Init) !void {
     var delete_out_dir = false;
     var verbose = false;
     var profile = false;
+    var bail_on_error = false;
 
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
@@ -79,6 +81,8 @@ pub fn main(init: std.process.Init) !void {
             verbose = true;
         } else if (std.mem.eql(u8, arg, "--profile")) {
             profile = true;
+        } else if (std.mem.eql(u8, arg, "--bail")) {
+            bail_on_error = true;
         } else if (std.mem.eql(u8, arg, "--config")) {
             i += 1;
             if (i >= args.len) fatal("--config requires value");
@@ -153,6 +157,10 @@ pub fn main(init: std.process.Init) !void {
         const file_start = std.Io.Timestamp.now(io, .awake).nanoseconds;
         if (verbose) std.debug.print("compiling {s}...\n", .{path});
         cli.compilePath(path, .{ .out_file = out_file, .out_dir = out_dir, .config = cfg }, io, alloc) catch |err| {
+            if (bail_on_error) {
+                std.debug.print("error: failed to compile '{s}': {}\n", .{ path, err });
+                std.process.exit(1);
+            }
             std.debug.print("error: failed to compile '{s}': {}\n", .{ path, err });
             errors += 1;
             continue;
@@ -169,7 +177,9 @@ pub fn main(init: std.process.Init) !void {
                 }
             }
             total_lines += lines;
-            std.debug.print("  {s}  {d:.2}ms  {d} lines\n", .{ std.fs.path.basename(path), file_elapsed, lines });
+            const color = if (file_elapsed < 10.0) "\x1b[32m" else if (file_elapsed < 50.0) "\x1b[33m" else "\x1b[31m";
+            const reset = "\x1b[0m";
+            std.debug.print("  {s}{d:.2}ms{s}  {s}  {d} lines\n", .{ color, file_elapsed, reset, std.fs.path.basename(path), lines });
         }
     }
 
