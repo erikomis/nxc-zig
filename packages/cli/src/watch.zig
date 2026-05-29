@@ -35,6 +35,11 @@ pub fn watchAndCompile(
 
     var debounce: i128 = 0;
     var poll_tick: u32 = 0;
+    var pending = std.ArrayListUnmanaged([]const u8).empty;
+    defer {
+        for (pending.items) |p| alloc.free(p);
+        pending.deinit(alloc);
+    }
 
     while (true) {
         std.Io.sleep(io, .{ .nanoseconds = std.time.ns_per_s }, .awake) catch continue;
@@ -78,6 +83,7 @@ pub fn watchAndCompile(
                 entry.value_ptr.* = mtime;
                 var buf: [9]u8 = undefined;
                 std.debug.print("[{s}] Changed: {s}\n", .{ fmtTimestamp(&buf, io), entry.key_ptr.* });
+                try pending.append(alloc, try alloc.dupe(u8, entry.key_ptr.*));
                 changed = true;
             }
         }
@@ -109,7 +115,24 @@ pub fn watchAndCompile(
             const elapsed = @as(i128, std.Io.Timestamp.now(io, .awake).nanoseconds) - debounce;
             if (elapsed >= 100 * std.time.ns_per_ms) {
                 debounce = 0;
-                try initialCompile(paths, cfg, out_dir, out_file, io, alloc);
+                // Incremental compile: only recompile files that truly changed
+                for (pending.items) |path| {
+                    const result = inc.compileFile(path, io, alloc) catch |err| {
+                        std.debug.print("error: failed to compile '{s}': {}\n", .{ path, err });
+                        continue;
+                    };
+                    alloc.free(result.code);
+                    if (result.map) |m| alloc.free(m);
+                    if (result.declarations) |d| alloc.free(d);
+                    for (result.diagnostics) |d| {
+                        alloc.free(d.message);
+                        alloc.free(d.filename);
+                        if (d.source_line) |l| alloc.free(l);
+                    }
+                    alloc.free(result.diagnostics);
+                }
+                for (pending.items) |p| alloc.free(p);
+                pending.clearRetainingCapacity();
                 var buf: [9]u8 = undefined;
                 std.debug.print("[{s}] Watching for changes...\n", .{fmtTimestamp(&buf, io)});
             }
