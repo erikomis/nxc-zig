@@ -797,11 +797,19 @@ fn runStatsCommand(io: Io, alloc: std.mem.Allocator) !void {
 
     var total_files: usize = 0;
     var total_lines: usize = 0;
+    var total_bytes: usize = 0;
     var ext_counts = std.StringHashMapUnmanaged(usize).empty;
     defer {
         var it = ext_counts.keyIterator();
         while (it.next()) |k| alloc.free(k.*);
         ext_counts.deinit(alloc);
+    }
+
+    const LargestFile = struct { path: []const u8, lines: usize, bytes: usize };
+    var largest = std.ArrayListUnmanaged(LargestFile).empty;
+    defer {
+        for (largest.items) |f| alloc.free(f.path);
+        largest.deinit(alloc);
     }
 
     const exts = [_][]const u8{ ".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs", ".json", ".css" };
@@ -812,11 +820,11 @@ fn runStatsCommand(io: Io, alloc: std.mem.Allocator) !void {
         defer walker.deinit();
         var count: usize = 0;
         var lines: usize = 0;
+        var bytes: usize = 0;
 
         while (try walker.next(io)) |entry| {
             if (entry.kind != .file) continue;
             if (!std.mem.endsWith(u8, entry.basename, ext)) continue;
-
             const path = entry.path;
             if (std.mem.indexOf(u8, path, "node_modules") != null) continue;
             if (std.mem.indexOf(u8, path, "dist/") != null) continue;
@@ -824,9 +832,13 @@ fn runStatsCommand(io: Io, alloc: std.mem.Allocator) !void {
 
             const source = Io.Dir.cwd().readFileAlloc(io, path, alloc, std.Io.Limit.limited(1 * 1024 * 1024)) catch continue;
             defer alloc.free(source);
-            for (source) |c| if (c == '\n') lines += 1;
+            var file_lines: usize = 0;
+            for (source) |c| if (c == '\n') file_lines += 1;
 
+            try largest.append(alloc, .{ .path = try alloc.dupe(u8, path), .lines = file_lines, .bytes = source.len });
             count += 1;
+            lines += file_lines;
+            bytes += source.len;
         }
 
         if (count > 0) {
@@ -834,13 +846,34 @@ fn runStatsCommand(io: Io, alloc: std.mem.Allocator) !void {
             try ext_counts.put(alloc, key, count);
             total_files += count;
             total_lines += lines;
-            std.debug.print("  {s:<8} {d:>4} files  {d:>6} lines\n", .{ ext, count, lines });
+            total_bytes += bytes;
+            const kb = @as(f64, @floatFromInt(bytes)) / 1024.0;
+            std.debug.print("  {s:<8} {d:>4} files  {d:>6} lines  {d:>7.1} KB\n", .{ ext, count, lines, kb });
         }
         dir.close(io);
     }
 
+    const total_kb = @as(f64, @floatFromInt(total_bytes)) / 1024.0;
     std.debug.print("  ────────\n", .{});
-    std.debug.print("  {s:<8} {d:>4} files  {d:>6} lines\n", .{ "total", total_files, total_lines });
+    std.debug.print("  {s:<8} {d:>4} files  {d:>6} lines  {d:>7.1} KB\n\n", .{ "total", total_files, total_lines, total_kb });
+
+    if (largest.items.len > 0) {
+        std.debug.print("Top largest files:\n", .{});
+        // Simple sort by bytes descending using insertion sort for small n
+        for (1..largest.items.len) |i| {
+            var j = i;
+            while (j > 0 and largest.items[j - 1].bytes < largest.items[j].bytes) : (j -= 1) {
+                const tmp = largest.items[j];
+                largest.items[j] = largest.items[j - 1];
+                largest.items[j - 1] = tmp;
+            }
+        }
+        const show = @min(largest.items.len, 5);
+        for (largest.items[0..show]) |f| {
+            const kb = @as(f64, @floatFromInt(f.bytes)) / 1024.0;
+            std.debug.print("  {d:>5.1} KB  {d:>4} lines  {s}\n", .{ kb, f.lines, f.path });
+        }
+    }
 }
 
 fn fatal(msg: []const u8) noreturn {
