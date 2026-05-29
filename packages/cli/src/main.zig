@@ -25,6 +25,7 @@ const usage =
     \\  nxc clean
     \\  nxc stats
     \\  nxc ast <file>
+    \\  nxc explain <rule>
     \\
     \\Commands:
     \\  compile     Compile TypeScript/JavaScript to JavaScript
@@ -117,6 +118,15 @@ pub fn main(init: std.process.Init) !void {
             try runAstCommand(args_slice[2], io, alloc);
         } else {
             try Io.File.stdout().writeStreamingAll(io, "Usage: nxc ast <file>\n");
+        }
+        return;
+    }
+
+    if (args_slice.len > 1 and std.mem.eql(u8, args_slice[1], "explain")) {
+        if (args_slice.len > 2) {
+            try runExplainCommand(args_slice[2], io);
+        } else {
+            try Io.File.stdout().writeStreamingAll(io, "Usage: nxc explain <rule>\n");
         }
         return;
     }
@@ -939,6 +949,41 @@ fn runAstCommand(path: []const u8, io: Io, alloc: std.mem.Allocator) !void {
     } else {
         std.debug.print("Parse error: no program generated\n", .{});
     }
+}
+
+fn runExplainCommand(rule_name: []const u8, io: Io) !void {
+    const ExplainEntry = struct { code: []const u8, sev: []const u8, desc: []const u8, example: []const u8 };
+    const rules = [_]ExplainEntry{
+        .{ .code = "no-console", .sev = "warn", .desc = "Disallow console.log, console.error, etc.", .example = "console.log('debug') // ✗ use a proper logger" },
+        .{ .code = "no-debugger", .sev = "err", .desc = "Disallow debugger statements in production code.", .example = "debugger // ✗ remove before commit" },
+        .{ .code = "no-eval", .sev = "err", .desc = "Disallow eval() which can execute arbitrary code.", .example = "eval('1 + 1') // ✗ use explicit code" },
+        .{ .code = "no-var", .sev = "err", .desc = "Require let or const instead of var.", .example = "var x = 1 // ✗ use const x = 1" },
+        .{ .code = "prefer-const", .sev = "warn", .desc = "Require const for variables that are never reassigned.", .example = "let x = 1 // ✗ use const x = 1" },
+        .{ .code = "eqeqeq", .sev = "err", .desc = "Require === and !== instead of == and !=", .example = "x == null // ✗ use x === null" },
+        .{ .code = "no-unused-vars", .sev = "warn", .desc = "Disallow unused variables.", .example = "const x = 1 // ✗ remove if unused" },
+        .{ .code = "no-empty", .sev = "err", .desc = "Disallow empty block statements.", .example = "if (x) {} // ✗ remove or add logic" },
+        .{ .code = "no-dupe-keys", .sev = "err", .desc = "Disallow duplicate keys in object literals.", .example = "const o = { a: 1, a: 2 } // ✗" },
+        .{ .code = "no-constant-condition", .sev = "err", .desc = "Disallow constant expressions in conditions.", .example = "if (true) {} // ✗ always true" },
+        .{ .code = "no-unsafe-finally", .sev = "err", .desc = "Disallow return/throw/break/continue in finally blocks.", .example = "finally { return x } // ✗ masks errors" },
+        .{ .code = "no-constructor-return", .sev = "err", .desc = "Disallow return value in class constructor.", .example = "constructor() { return {} } // ✗" },
+        .{ .code = "prefer-template", .sev = "warn", .desc = "Require template literals over string concatenation.", .example = "'a' + b // ✗ use `a${b}`" },
+        .{ .code = "no-await-in-loop", .sev = "err", .desc = "Disallow await inside of loops.", .example = "for (...) { await f() } // ✗ use Promise.all" },
+    };
+
+    for (rules) |r| {
+        if (std.mem.eql(u8, r.code, rule_name)) {
+            try std.Io.File.stdout().writeStreamingAll(io, r.code);
+            try std.Io.File.stdout().writeStreamingAll(io, "\n  Severity: ");
+            try std.Io.File.stdout().writeStreamingAll(io, r.sev);
+            try std.Io.File.stdout().writeStreamingAll(io, "\n  Description: ");
+            try std.Io.File.stdout().writeStreamingAll(io, r.desc);
+            try std.Io.File.stdout().writeStreamingAll(io, "\n  Example:\n    ");
+            try std.Io.File.stdout().writeStreamingAll(io, r.example);
+            try std.Io.File.stdout().writeStreamingAll(io, "\n");
+            return;
+        }
+    }
+    std.debug.print("Unknown rule '{s}'. Use --list-rules to see all rules.\n", .{rule_name});
 }
 
 fn fatal(msg: []const u8) noreturn {
