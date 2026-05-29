@@ -148,7 +148,7 @@ pub fn main(init: std.process.Init) !void {
                         if (json_output) {
                             printDiagnosticJson(diag);
                         } else {
-                            printDiagnostic(diag);
+                            printDiagnostic(diag, null);
                         }
                         if (diag.severity == .err) had_errors = true;
                     }
@@ -185,7 +185,7 @@ pub fn main(init: std.process.Init) !void {
                 if (json_output) {
                     printDiagnosticJson(diag);
                 } else {
-                    printDiagnostic(diag);
+                    printDiagnostic(diag, null);
                 }
                 if (diag.severity == .err) had_errors = true;
             }
@@ -264,7 +264,7 @@ fn expandPaths(raw: []const []const u8, io: std.Io, alloc: std.mem.Allocator) ![
     return result.toOwnedSlice(alloc);
 }
 
-fn printDiagnostic(diag: linter.Diagnostic) void {
+fn printDiagnostic(diag: linter.Diagnostic, source: ?[]const u8) void {
     const sev = switch (diag.severity) {
         .off => "off",
         .err => "error",
@@ -283,6 +283,43 @@ fn printDiagnostic(diag: linter.Diagnostic) void {
         reset, diag.filename, diag.range.start.line, diag.range.start.column, reset,
         diag.message,
     });
+    if (source) |src| {
+        const line_start = findLineStart(src, diag.range.start.index);
+        const line_end = findLineEnd(src, line_start);
+        const line = src[line_start..line_end];
+        std.debug.print("  {d} | {s}\n", .{ diag.range.start.line, line });
+        std.debug.print("    | ", .{});
+        var col: u32 = 1;
+        while (col < diag.range.start.column) : (col += 1) {
+            std.debug.print(" ", .{});
+        }
+        const len = if (diag.range.end.index > diag.range.start.index)
+            @as(u32, @intCast(diag.range.end.index - diag.range.start.index))
+        else
+            1;
+        var j: u32 = 0;
+        while (j < len) : (j += 1) {
+            std.debug.print("^", .{});
+        }
+        std.debug.print("\n", .{});
+    }
+}
+
+fn findLineStart(src: []const u8, pos: usize) usize {
+    if (pos == 0) return 0;
+    var i = pos;
+    while (i > 0) : (i -= 1) {
+        if (src[i - 1] == '\n') return i;
+    }
+    return 0;
+}
+
+fn findLineEnd(src: []const u8, start: usize) usize {
+    var i = start;
+    while (i < src.len) : (i += 1) {
+        if (src[i] == '\n') return i;
+    }
+    return src.len;
 }
 
 fn printDiagnosticJson(diag: linter.Diagnostic) void {
@@ -369,7 +406,7 @@ const LintWatcher = struct {
         };
         defer result.result.deinit(alloc);
         for (result.result.diagnostics) |diag| {
-            printDiagnostic(diag);
+            printDiagnostic(diag, null);
         }
     }
 };
