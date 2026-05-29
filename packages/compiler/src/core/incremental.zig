@@ -2,11 +2,13 @@ const std = @import("std");
 const cache = @import("cache");
 const compiler = @import("compiler");
 const config = @import("config");
+const diagnostics = @import("diagnostics");
 
 const CacheEntry = cache.CacheEntry;
 const CacheStore = cache.CacheStore;
 const Config = config.Config;
 const CompileResult = compiler.CompileResult;
+const Diagnostic = diagnostics.Diagnostic;
 
 pub const IncrementalCompiler = struct {
     cache: CacheStore,
