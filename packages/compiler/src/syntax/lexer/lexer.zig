@@ -26,7 +26,7 @@ pub const Lexer = struct {
     peeked: ?Token,
     last_kind: ?TokenKind,
     // template literal depth tracking: each entry is the brace depth when we entered the ${
-    template_stack: [16]u8 = [_]u8{0} ** 16,
+    template_stack: [64]u8 = [_]u8{0} ** 64,
     template_depth: u8 = 0,
     brace_depth: u8 = 0,
     pending_comments: [32]Comment = undefined,
@@ -241,7 +241,7 @@ pub const Lexer = struct {
         const kind: TokenKind = if (has_expr) .template_head else .template_no_sub;
         if (kind == .template_head) {
             // push current brace depth so we know when ${...} closes
-            if (self.template_depth < 16) {
+            if (self.template_depth < 64) {
                 self.template_stack[self.template_depth] = self.brace_depth;
                 self.template_depth += 1;
             }
@@ -279,7 +279,7 @@ pub const Lexer = struct {
         }
         const kind: TokenKind = if (has_expr) .template_middle else .template_tail;
         if (kind == .template_middle) {
-            if (self.template_depth < 16) {
+            if (self.template_depth < 64) {
                 self.template_stack[self.template_depth] = self.brace_depth;
                 self.template_depth += 1;
             }

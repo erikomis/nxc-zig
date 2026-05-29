@@ -32,6 +32,8 @@ pub const RuleOverride = struct {
 
 pub const FormatterConfig = struct {
     options: common.FormatterOptions = .{},
+
+    pub fn deinit(_: *FormatterConfig) void {}
 };
 
 pub const Config = struct {
@@ -162,6 +164,8 @@ fn applyFormatterConfigToRules(registry: *Registry, opts: common.FormatterOption
     }
 }
 
+/// Lint source code using a pre-configured rule registry.
+/// Returns Result with diagnostics and optional fixed source.
 pub fn lint(source: []const u8, filename: []const u8, registry: Registry, alloc: std.mem.Allocator) !Result {
     return lintWithEnv(source, filename, registry, .{}, alloc);
 }
@@ -270,6 +274,7 @@ pub fn lintAndFormat(source: []const u8, filename: []const u8, registry: Registr
     return result;
 }
 
+/// Lint source code using the built-in default rule set. Quick entry point.
 pub fn lintWithDefaultRules(source: []const u8, filename: []const u8, alloc: std.mem.Allocator) !Result {
     var registry = Registry{};
     defer registry.deinit(alloc);
@@ -277,6 +282,7 @@ pub fn lintWithDefaultRules(source: []const u8, filename: []const u8, alloc: std
     return lint(source, filename, registry, alloc);
 }
 
+/// Lint source code with a custom Config (env, rules, formatter options).
 pub fn lintWithConfig(source: []const u8, filename: []const u8, cfg: Config, alloc: std.mem.Allocator) !Result {
     var registry = Registry{};
     defer registry.deinit(alloc);
@@ -287,6 +293,7 @@ pub fn lintWithConfig(source: []const u8, filename: []const u8, cfg: Config, all
     return lintAndFormat(source, filename, registry, cfg, alloc);
 }
 
+/// Lint source with custom third-party plugins. Plugins can add rules and formatters.
 pub fn lintWithPlugins(source: []const u8, filename: []const u8, plugins: []const common.Plugin, alloc: std.mem.Allocator) !Result {
     var registry = Registry{};
     defer registry.deinit(alloc);
@@ -295,6 +302,7 @@ pub fn lintWithPlugins(source: []const u8, filename: []const u8, plugins: []cons
     return lint(source, filename, registry, alloc);
 }
 
+/// Full linter: plugins + config + default rules combined.
 pub fn lintWithPluginsAndConfig(source: []const u8, filename: []const u8, plugins: []const common.Plugin, cfg: Config, alloc: std.mem.Allocator) !Result {
     var registry = Registry{};
     defer registry.deinit(alloc);

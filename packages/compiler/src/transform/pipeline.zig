@@ -14,7 +14,7 @@ const elide = @import("elide_imports.zig");
 
 const NodeId = ast.NodeId;
 
-pub const Target = enum { es2020, es2022, es2024, esnext };
+pub const Target = enum { es2015, es2016, es2017, es2018, es2019, es2020, es2022, es2024, esnext };
 
 pub const PipelineConfig = struct {
     typescript: bool = true,

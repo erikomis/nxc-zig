@@ -112,7 +112,7 @@ pub fn main(init: std.process.Init) !void {
     if (config.readTsConfig(config_path, io, alloc) catch null) |ts| {
         ts.compiler_options.applyTo(&cfg) catch |err| switch (err) {
             error.UnsupportedTsTarget => {
-                const msg = "Unsupported tsconfig target. Only es2020, es2022, es2024, and esnext are allowed.";
+                const msg = "Unsupported tsconfig target. Supported: es2015, es2016, es2017, es2018, es2019, es2020, es2022, es2024, and esnext.";
                 const colored = ansi.red(alloc, msg) catch {
                     std.debug.print("error: {s}\n", .{msg});
                     std.process.exit(1);
@@ -376,10 +376,10 @@ test "applyTsConfigOverrides maps target esnext" {
     try std.testing.expectEqual(config.Target.esnext, cfg.target);
 }
 
-test "applyTsConfigOverrides rejects tsconfig target below es2020" {
+test "applyTsConfigOverrides rejects tsconfig target below es2015" {
     var cfg = compiler.Config{};
     const ts = config.TsConfig{
-        .compiler_options = .{ .target = "ES2019" },
+        .compiler_options = .{ .target = "ES5" },
     };
     try std.testing.expectError(error.UnsupportedTsTarget, applyTsConfigOverrides(&cfg, ts));
 }
@@ -387,7 +387,7 @@ test "applyTsConfigOverrides rejects tsconfig target below es2020" {
 test "applyTsConfigOverrides rejects unsupported tsconfig target" {
     var cfg = compiler.Config{};
     const ts = config.TsConfig{
-        .compiler_options = .{ .target = "ES2018" },
+        .compiler_options = .{ .target = "ES7" },
     };
     try std.testing.expectError(error.UnsupportedTsTarget, applyTsConfigOverrides(&cfg, ts));
 }

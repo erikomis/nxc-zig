@@ -6,7 +6,7 @@ const modules = @import("modules");
 const aliases = @import("aliases");
 const json5 = @import("json5");
 
-pub const Target = enum { es2020, es2022, es2024, esnext };
+pub const Target = enum { es2015, es2016, es2017, es2018, es2019, es2020, es2022, es2024, esnext };
 pub const PathAlias = aliases.PathAlias;
 pub const ParserSyntax = enum { typescript, ecmascript };
 
@@ -147,6 +147,11 @@ fn parseCompilerOptions(obj: std.json.ObjectMap, alloc: std.mem.Allocator) !TsCo
 }
 
 pub fn parseSupportedTarget(raw: []const u8) !Target {
+    if (std.ascii.eqlIgnoreCase(raw, "es2015") or std.ascii.eqlIgnoreCase(raw, "es6")) return .es2015;
+    if (std.ascii.eqlIgnoreCase(raw, "es2016")) return .es2016;
+    if (std.ascii.eqlIgnoreCase(raw, "es2017")) return .es2017;
+    if (std.ascii.eqlIgnoreCase(raw, "es2018")) return .es2018;
+    if (std.ascii.eqlIgnoreCase(raw, "es2019")) return .es2019;
     if (std.ascii.eqlIgnoreCase(raw, "es2020")) return .es2020;
     if (std.ascii.eqlIgnoreCase(raw, "es2022")) return .es2022;
     if (std.ascii.eqlIgnoreCase(raw, "es2024")) return .es2024;

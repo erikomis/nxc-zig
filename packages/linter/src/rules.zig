@@ -1092,11 +1092,15 @@ fn fixPreferTemplate(arena: *const Arena, _: NodeId, node: *const Node, ctx: com
         offset += p.len;
     }
 
-    try ctx.fixes.append(ctx.alloc, .{
-        .start = sp.start,
-        .end = sp.end,
-        .replacement = replacement,
-    });
+    if (ctx.fixes) |fixes| {
+        try fixes.append(ctx.alloc, .{
+            .start = sp.start,
+            .end = sp.end,
+            .replacement = replacement,
+        });
+    } else {
+        ctx.alloc.free(replacement);
+    }
 }
 
 fn collectTemplateParts(arena: *const Arena, node_id: NodeId, source: []const u8, parts: *std.ArrayListUnmanaged([]const u8), alloc: std.mem.Allocator) !void {

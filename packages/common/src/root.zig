@@ -33,7 +33,7 @@ pub const LintContext = struct {
     env: LintEnvironment = .{},
     alloc: std.mem.Allocator,
     diagnostics: *std.ArrayListUnmanaged(Diagnostic),
-    fixes: *std.ArrayListUnmanaged(LintFix) = undefined,
+    fixes: ?*std.ArrayListUnmanaged(LintFix) = null,
     ast_arena: ?*const anyopaque = null,
     ast_program_id: ?u32 = null,
 

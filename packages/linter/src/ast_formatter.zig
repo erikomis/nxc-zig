@@ -1,6 +1,9 @@
 const std = @import("std");
 const common = @import("common");
 
+// SYNC: Keep in sync with packages/formatter/src/ast_formatter.zig
+// Differences: formatter copy has 10 extra comment lines in formatAst for blank line/comment ordering.
+// Any bug fix applied here should be mirrored in the formatter copy.
 const ast = @import("ast.zig");
 const parser = @import("parser.zig");
 const lexer = @import("lexer.zig");
