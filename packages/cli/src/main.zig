@@ -23,6 +23,7 @@ const usage =
     \\  nxc init
     \\  nxc doctor
     \\  nxc clean
+    \\  nxc stats
     \\
     \\Commands:
     \\  compile     Compile TypeScript/JavaScript to JavaScript
@@ -31,6 +32,7 @@ const usage =
     \\  init        Create default tsconfig.json + nxc.config.js
     \\  doctor      Check project health and configuration
     \\  clean       Remove build output and cache
+    \\  stats       Show project statistics
     \\
     \\Compile Options:
     \\  --out-file <path>       Single output file (default: stdout)
@@ -100,6 +102,11 @@ pub fn main(init: std.process.Init) !void {
 
     if (args_slice.len > 1 and std.mem.eql(u8, args_slice[1], "clean")) {
         try runCleanCommand(io);
+        return;
+    }
+
+    if (args_slice.len > 1 and std.mem.eql(u8, args_slice[1], "stats")) {
+        try runStatsCommand(io, alloc);
         return;
     }
 
@@ -783,6 +790,57 @@ fn runCleanCommand(io: Io) !void {
         } else |_| {}
     }
     std.debug.print("Cleaned build artifacts\n", .{});
+}
+
+fn runStatsCommand(io: Io, alloc: std.mem.Allocator) !void {
+    try Io.File.stdout().writeStreamingAll(io, "nxc stats\n\n");
+
+    var total_files: usize = 0;
+    var total_lines: usize = 0;
+    var ext_counts = std.StringHashMapUnmanaged(usize).empty;
+    defer {
+        var it = ext_counts.keyIterator();
+        while (it.next()) |k| alloc.free(k.*);
+        ext_counts.deinit(alloc);
+    }
+
+    const exts = [_][]const u8{ ".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs", ".json", ".css" };
+
+    for (exts) |ext| {
+        var dir = Io.Dir.cwd().openDir(io, ".", .{ .iterate = true }) catch continue;
+        var walker = try dir.walk(alloc);
+        defer walker.deinit();
+        var count: usize = 0;
+        var lines: usize = 0;
+
+        while (try walker.next(io)) |entry| {
+            if (entry.kind != .file) continue;
+            if (!std.mem.endsWith(u8, entry.basename, ext)) continue;
+
+            const path = entry.path;
+            if (std.mem.indexOf(u8, path, "node_modules") != null) continue;
+            if (std.mem.indexOf(u8, path, "dist/") != null) continue;
+            if (std.mem.indexOf(u8, path, ".zig-cache") != null) continue;
+
+            const source = Io.Dir.cwd().readFileAlloc(io, path, alloc, std.Io.Limit.limited(1 * 1024 * 1024)) catch continue;
+            defer alloc.free(source);
+            for (source) |c| if (c == '\n') lines += 1;
+
+            count += 1;
+        }
+
+        if (count > 0) {
+            const key = try alloc.dupe(u8, ext);
+            try ext_counts.put(alloc, key, count);
+            total_files += count;
+            total_lines += lines;
+            std.debug.print("  {s:<8} {d:>4} files  {d:>6} lines\n", .{ ext, count, lines });
+        }
+        dir.close(io);
+    }
+
+    std.debug.print("  ────────\n", .{});
+    std.debug.print("  {s:<8} {d:>4} files  {d:>6} lines\n", .{ "total", total_files, total_lines });
 }
 
 fn fatal(msg: []const u8) noreturn {
