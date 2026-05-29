@@ -186,7 +186,9 @@ pub fn compileDirAll(src_dir: []const u8, out_dir: []const u8, cfg: compiler.Con
         defer alloc.free(out_path);
 
         if (std.fs.path.dirname(out_path)) |dir| {
-            makeDirAll(dir, io) catch {};
+            makeDirAll(dir, io) catch |err| {
+                std.debug.print("warning: failed to create dir {s}: {}\n", .{ dir, err });
+            };
         }
 
         compileSingle(src_file, src_dir, null, out_dir, file_cfg, io, alloc) catch |err| {
@@ -209,7 +211,9 @@ pub fn copySingle(src_file: []const u8, src_root: []const u8, out_file: ?[]const
 
     if (out_file) |of| {
         if (std.fs.path.dirname(of)) |dir| {
-            makeDirAll(dir, io) catch {};
+            makeDirAll(dir, io) catch |err| {
+                std.debug.print("warning: failed to create dir {s}: {}\n", .{ dir, err });
+            };
         }
         try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = of, .data = data });
     } else if (out_dir) |od| {
@@ -217,7 +221,9 @@ pub fn copySingle(src_file: []const u8, src_root: []const u8, out_file: ?[]const
         defer alloc.free(out_path);
 
         if (std.fs.path.dirname(out_path)) |dir| {
-            makeDirAll(dir, io) catch {};
+            makeDirAll(dir, io) catch |err| {
+                std.debug.print("warning: failed to create dir {s}: {}\n", .{ dir, err });
+            };
         }
 
         try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = out_path, .data = data });
@@ -234,7 +240,9 @@ pub fn compileSingle(src_file: []const u8, src_root: []const u8, out_file: ?[]co
 
     if (out_file) |of| {
         if (std.fs.path.dirname(of)) |dir| {
-            makeDirAll(dir, io) catch {};
+            makeDirAll(dir, io) catch |err| {
+                std.debug.print("warning: failed to create dir {s}: {}\n", .{ dir, err });
+            };
         }
 
         if (result.map) |map| {
@@ -255,7 +263,9 @@ pub fn compileSingle(src_file: []const u8, src_root: []const u8, out_file: ?[]co
             defer alloc.free(dts_path);
 
             if (std.fs.path.dirname(dts_path)) |dir| {
-                makeDirAll(dir, io) catch {};
+                makeDirAll(dir, io) catch |err| {
+                    std.debug.print("warning: failed to create dir {s}: {}\n", .{ dir, err });
+                };
             }
 
             try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = dts_path, .data = dts });
@@ -264,7 +274,9 @@ pub fn compileSingle(src_file: []const u8, src_root: []const u8, out_file: ?[]co
         const out_path = try buildOutPath(src_file, src_root, od, alloc);
         defer alloc.free(out_path);
         if (std.fs.path.dirname(out_path)) |dir| {
-            makeDirAll(dir, io) catch {};
+            makeDirAll(dir, io) catch |err| {
+                std.debug.print("warning: failed to create dir {s}: {}\n", .{ dir, err });
+            };
         }
         if (result.map) |map| {
             const map_path = try buildMapPath(out_path, alloc);
@@ -281,7 +293,9 @@ pub fn compileSingle(src_file: []const u8, src_root: []const u8, out_file: ?[]co
             defer alloc.free(dts_path);
 
             if (std.fs.path.dirname(dts_path)) |dir| {
-                makeDirAll(dir, io) catch {};
+                makeDirAll(dir, io) catch |err| {
+                    std.debug.print("warning: failed to create dir {s}: {}\n", .{ dir, err });
+                };
             }
 
             try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = dts_path, .data = dts });

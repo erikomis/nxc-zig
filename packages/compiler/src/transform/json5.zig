@@ -149,7 +149,7 @@ pub fn sanitize(input: []const u8, alloc: std.mem.Allocator) ![]u8 {
             const hex_str = input[i + 2 .. j];
             const val = try std.fmt.parseInt(u64, hex_str, 16);
             var tmp_buf: [32]u8 = undefined;
-            const dec = std.fmt.bufPrint(&tmp_buf, "{d}", .{val}) catch unreachable;
+            const dec = std.fmt.bufPrint(&tmp_buf, "{d}", .{val}) catch return error.Json5SanitizeFailed;
             try out.appendSlice(alloc, dec);
             i = j;
             continue;
@@ -164,7 +164,7 @@ pub fn sanitize(input: []const u8, alloc: std.mem.Allocator) ![]u8 {
             const hex_str = input[i + 3 .. j];
             const val = try std.fmt.parseInt(u64, hex_str, 16);
             var tmp_buf: [33]u8 = undefined;
-            const dec = std.fmt.bufPrint(&tmp_buf, "-{d}", .{val}) catch unreachable;
+            const dec = std.fmt.bufPrint(&tmp_buf, "-{d}", .{val}) catch return error.Json5SanitizeFailed;
             try out.appendSlice(alloc, dec);
             i = j;
             continue;

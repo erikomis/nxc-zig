@@ -162,7 +162,9 @@ pub fn main(init: std.process.Init) !void {
                 continue;
             };
             const mtime_ms = @as(f64, @floatFromInt(stat.mtime.nanoseconds)) / 1_000_000.0;
-            c.update(rel, mtime_ms, stat.size, lint_result.result.diagnostics) catch {};
+            c.update(rel, mtime_ms, stat.size, lint_result.result.diagnostics) catch |err| {
+                std.debug.print("warning: failed to update cache: {}\n", .{err});
+            };
         }
 
         alloc.free(rel);
@@ -170,7 +172,9 @@ pub fn main(init: std.process.Init) !void {
 
     if (cache_instance) |*c| {
         c.removeMissing(paths);
-        c.save() catch {};
+        c.save() catch |err| {
+            std.debug.print("warning: failed to save cache: {}\n", .{err});
+        };
         c.logStats();
     }
 
@@ -227,7 +231,7 @@ fn expandPaths(raw: []const []const u8, io: std.Io, alloc: std.mem.Allocator) ![
 
 fn printDiagnostic(diag: linter.Diagnostic) void {
     const sev = switch (diag.severity) {
-        .off => unreachable,
+        .off => "off",
         .err => "error",
         .warn => "warning",
         .info => "info",

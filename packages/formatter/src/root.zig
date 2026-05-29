@@ -144,7 +144,7 @@ pub fn format(source: []const u8, options: common.FormatterOptions, alloc: std.m
                     if (!pending_prose) {
                         prose_depth = depth;
                         prose_acc.clearRetainingCapacity();
-                        prose_acc.appendSlice(alloc, trimmed) catch {};
+                        prose_acc.appendSlice(alloc, trimmed) catch {}; // non-critical: formatting helper
                         pending_prose = true;
                     } else {
                         if (prose_acc.items.len > 0) try prose_acc.append(alloc, ' ');

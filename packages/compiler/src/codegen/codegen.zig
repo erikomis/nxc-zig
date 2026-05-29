@@ -354,7 +354,7 @@ pub const Codegen = struct {
             if (self.mergeDeclNameOfStmt(body[i])) |name| {
                 const counts = &self.merge_decl_counts.items[self.merge_decl_counts.items.len - 1];
                 const cur = counts.get(name) orelse 0;
-                counts.put(self.alloc, name, cur + 1) catch {};
+                counts.put(self.alloc, name, cur + 1) catch {}; // non-critical: merge dedup
             }
         }
     }

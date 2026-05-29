@@ -79,7 +79,9 @@ pub const IncrementalCompiler = struct {
     }
 
     pub fn deinit(self: *IncrementalCompiler, io: std.Io, alloc: std.mem.Allocator) void {
-        self.cache.save(io, alloc) catch {};
+        self.cache.save(io, alloc) catch |err| {
+            std.log.err("incremental: failed to save cache: {}", .{err});
+        };
         self.cache.deinit(alloc);
     }
 
@@ -93,7 +95,7 @@ pub const IncrementalCompiler = struct {
 };
 
 fn loadCachedOutput(path: []const u8, io: std.Io, alloc: std.mem.Allocator) !CompileResult {
-    const js_path = jsPathFromSourcePath(path, alloc);
+    const js_path = try jsPathFromSourcePath(path, alloc);
     defer alloc.free(js_path);
 
     const code = std.Io.Dir.cwd().readFileAlloc(io, js_path, alloc, std.Io.Limit.limited(64 * 1024 * 1024)) catch |err| switch (err) {
@@ -117,18 +119,18 @@ fn loadCachedOutput(path: []const u8, io: std.Io, alloc: std.mem.Allocator) !Com
     };
 }
 
-fn jsPathFromSourcePath(path: []const u8, alloc: std.mem.Allocator) []u8 {
+fn jsPathFromSourcePath(path: []const u8, alloc: std.mem.Allocator) ![]u8 {
     if (std.mem.endsWith(u8, path, ".ts")) {
-        return std.fmt.allocPrint(alloc, "{s}.js", .{path[0 .. path.len - 3]}) catch unreachable;
+        return std.fmt.allocPrint(alloc, "{s}.js", .{path[0 .. path.len - 3]});
     }
     if (std.mem.endsWith(u8, path, ".tsx")) {
-        return std.fmt.allocPrint(alloc, "{s}.js", .{path[0 .. path.len - 4]}) catch unreachable;
+        return std.fmt.allocPrint(alloc, "{s}.js", .{path[0 .. path.len - 4]});
     }
     if (std.mem.endsWith(u8, path, ".mts")) {
-        return std.fmt.allocPrint(alloc, "{s}.mjs", .{path[0 .. path.len - 4]}) catch unreachable;
+        return std.fmt.allocPrint(alloc, "{s}.mjs", .{path[0 .. path.len - 4]});
     }
     if (std.mem.endsWith(u8, path, ".cts")) {
-        return std.fmt.allocPrint(alloc, "{s}.cjs", .{path[0 .. path.len - 4]}) catch unreachable;
+        return std.fmt.allocPrint(alloc, "{s}.cjs", .{path[0 .. path.len - 4]});
     }
-    return std.fmt.allocPrint(alloc, "{s}.js", .{path}) catch unreachable;
+    return std.fmt.allocPrint(alloc, "{s}.js", .{path});
 }

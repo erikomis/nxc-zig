@@ -6,8 +6,8 @@ const Arena = ast.Arena;
 const NodeId = ast.NodeId;
 const Node = ast.Node;
 
-fn getArena(ctx: common.LintContext) *const Arena {
-    const ptr = ctx.ast_arena orelse @panic("getArena: ast_arena is null");
+fn getArena(ctx: common.LintContext) error{MissingArena}!*const Arena {
+    const ptr = ctx.ast_arena orelse return error.MissingArena;
     return @ptrCast(@alignCast(ptr));
 }
 
@@ -91,7 +91,7 @@ fn nodesEqual(arena: *const Arena, a: NodeId, b: NodeId) bool {
 }
 
 fn scanNodes(ctx: common.LintContext, rule: common.LintRule, comptime visit: fn (*const Arena, NodeId, *const Node, common.LintContext, common.LintRule) anyerror!void) !void {
-    const a = getArena(ctx);
+    const a = try getArena(ctx);
     for (a.nodes.items, 0..) |*node, i| {
         try visit(a, @intCast(i), node, ctx, rule);
     }
@@ -99,8 +99,7 @@ fn scanNodes(ctx: common.LintContext, rule: common.LintRule, comptime visit: fn 
 
 // ── Rule implementations ──
 
-fn runNoDebugger(arena: *const Arena, _: NodeId, node: *const Node, ctx: common.LintContext, rule: common.LintRule) !void {
-    _ = arena;
+fn runNoDebugger(_: *const Arena, _: NodeId, node: *const Node, ctx: common.LintContext, rule: common.LintRule) !void {
     if (node.* == .debugger_stmt) {
         try reportNode(ctx, rule, "unexpected debugger statement", node);
     }
@@ -286,7 +285,7 @@ fn runNoFuncAssign(arena: *const Arena, _: NodeId, node: *const Node, ctx: commo
 
 fn runNoGlobals(_: *const Arena, _: NodeId, node: *const Node, ctx: common.LintContext, rule: common.LintRule) !void {
     if (node.* != .assign_expr) return;
-    const arena = getArena(ctx);
+    const arena = try getArena(ctx);
     const left = arena.get(node.assign_expr.left);
     if (left.* == .member_expr) return;
     if (left.* != .ident) return;
@@ -874,8 +873,22 @@ fn envSupports(env: common.LintEnvironment, name: []const u8) bool {
             if (std.mem.eql(u8, name, g)) return true;
         }
     }
-    _ = env.deno;
-    _ = env.bun;
+    if (env.deno) {
+        const deno_globals = [_][]const u8{
+            "Deno",
+        };
+        for (deno_globals) |g| {
+            if (std.mem.eql(u8, name, g)) return true;
+        }
+    }
+    if (env.bun) {
+        const bun_globals = [_][]const u8{
+            "Bun",
+        };
+        for (bun_globals) |g| {
+            if (std.mem.eql(u8, name, g)) return true;
+        }
+    }
     return false;
 }
 
@@ -1046,14 +1059,13 @@ fn runPreferTemplate(arena: *const Arena, _: NodeId, node: *const Node, ctx: com
     try reportNode(ctx, rule, "use template literals instead of string concatenation", node);
 }
 
-fn fixPreferTemplate(arena: *const Arena, _: NodeId, node: *const Node, ctx: common.LintContext, rule: common.LintRule) !void {
+fn fixPreferTemplate(arena: *const Arena, _: NodeId, node: *const Node, ctx: common.LintContext, _: common.LintRule) !void {
     if (node.* != .binary_expr) return;
     if (node.binary_expr.op != .plus) return;
     const left = arena.get(node.binary_expr.left);
     const right = arena.get(node.binary_expr.right);
     if (left.* == .str_lit and right.* == .str_lit) return;
     if (left.* != .str_lit and right.* != .str_lit) return;
-    _ = rule;
 
     const sp = node.span();
     const source = ctx.source;

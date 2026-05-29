@@ -89,7 +89,7 @@ fn loadBaseline(alloc: std.mem.Allocator) !?Baseline {
 
     return Baseline{
         .timestamp = @intCast(ts),
-        .git_hash = try std.heap.page_allocator.dupe(u8, "unknown"),
+        .git_hash = try alloc.dupe(u8, "unknown"),
         .compiler_ns = comp,
         .formatter_ns = fmt,
         .linter_ns = lint,
@@ -98,8 +98,10 @@ fn loadBaseline(alloc: std.mem.Allocator) !?Baseline {
 }
 
 fn extractJsonField(comptime T: type, json_str: []const u8, key: []const u8) ?T {
-    const search = std.fmt.allocPrint(std.heap.page_allocator, "\"{s}\":", .{key}) catch return null;
-    defer std.heap.page_allocator.free(search);
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const search = std.fmt.allocPrint(a, "\"{s}\":", .{key}) catch return null;
     const idx = std.mem.indexOf(u8, json_str, search) orelse return null;
     const start = idx + search.len;
     var end = start;

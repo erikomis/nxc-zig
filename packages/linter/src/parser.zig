@@ -740,7 +740,7 @@ pub const Parser = struct {
             .kw_let => .let,
             .kw_const => .@"const",
             .kw_using => .using,
-            else => unreachable,
+            else => return error.UnexpectedTokenInVarDecl,
         };
         var decls = std.ArrayListUnmanaged(ast.VarDeclarator).empty;
         while (true) {
@@ -1354,7 +1354,7 @@ pub const Parser = struct {
                     .tilde => .tilde,
                     .plus => .plus,
                     .minus => .minus,
-                    else => unreachable,
+                    else => return error.UnexpectedTokenInUnary,
                 };
                 const arg = try self.parseUnary();
                 return self.arena.push(.{ .unary_expr = .{ .op = op, .prefix = true, .argument = arg, .span = t.span } });
@@ -3491,7 +3491,7 @@ pub const Parser = struct {
         _ = self.eat(); // var | let | const
         while (!self.check(.semicolon) and !self.check(.eof)) {
             _ = try self.parseBindingPattern();
-            if (self.eatIf(.bang) != null) {}
+            _ = self.eatIf(.bang);
             if (self.check(.colon)) {
                 _ = self.eat();
                 _ = try self.parseTsType();

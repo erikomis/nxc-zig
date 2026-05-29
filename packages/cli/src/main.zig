@@ -135,7 +135,9 @@ pub fn main(init: std.process.Init) !void {
 
     if (delete_out_dir) {
         const od = out_dir orelse "dist";
-        Io.Dir.cwd().deleteTree(io, od) catch {};
+        Io.Dir.cwd().deleteTree(io, od) catch |err| {
+            std.debug.print("warning: failed to delete out dir: {}\n", .{err});
+        };
     }
 
     if (watch) {

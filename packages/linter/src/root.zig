@@ -32,11 +32,6 @@ pub const RuleOverride = struct {
 
 pub const FormatterConfig = struct {
     options: common.FormatterOptions = .{},
-
-    pub fn deinit(self: *FormatterConfig, alloc: std.mem.Allocator) void {
-        _ = self;
-        _ = alloc;
-    }
 };
 
 pub const Config = struct {
@@ -142,8 +137,7 @@ fn applyRuleOverrides(registry: *Registry, overrides: std.ArrayListUnmanaged(Rul
     }
 }
 
-fn applyFormatterConfigToRules(registry: *Registry, opts: common.FormatterOptions, alloc: std.mem.Allocator) void {
-    _ = alloc;
+fn applyFormatterConfigToRules(registry: *Registry, opts: common.FormatterOptions) void {
     const Entry = struct { code: []const u8, option: common.RuleOptions };
     const entries = [_]Entry{
         .{ .code = "formatter/quotes", .option = .{ .bool_val = opts.singleQuote } },
@@ -288,7 +282,7 @@ pub fn lintWithConfig(source: []const u8, filename: []const u8, cfg: Config, all
     defer registry.deinit(alloc);
     try registerDefaultRules(&registry, alloc);
 
-    applyFormatterConfigToRules(&registry, cfg.formatter.options, alloc);
+    applyFormatterConfigToRules(&registry, cfg.formatter.options);
     applyRuleOverrides(&registry, cfg.rule_overrides, alloc);
     return lintAndFormat(source, filename, registry, cfg, alloc);
 }
@@ -307,7 +301,7 @@ pub fn lintWithPluginsAndConfig(source: []const u8, filename: []const u8, plugin
     try registerDefaultRules(&registry, alloc);
     for (plugins) |plugin| try registry.registerPlugin(alloc, plugin);
 
-    applyFormatterConfigToRules(&registry, cfg.formatter.options, alloc);
+    applyFormatterConfigToRules(&registry, cfg.formatter.options);
     applyRuleOverrides(&registry, cfg.rule_overrides, alloc);
     return lintAndFormat(source, filename, registry, cfg, alloc);
 }

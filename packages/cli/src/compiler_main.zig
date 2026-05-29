@@ -82,7 +82,11 @@ pub fn main(init: std.process.Init) !void {
         return;
     }
     if (input_paths.items.len > 1 and out_file != null) fatal("--out-file can only be used with a single input");
-    if (delete_out_dir) std.Io.Dir.cwd().deleteTree(io, out_dir orelse "dist") catch {};
+    if (delete_out_dir) {
+        std.Io.Dir.cwd().deleteTree(io, out_dir orelse "dist") catch |err| {
+            std.debug.print("warning: failed to delete out dir: {}\n", .{err});
+        };
+    }
 
     for (input_paths.items) |path| try cli.compilePath(path, .{ .out_file = out_file, .out_dir = out_dir, .config = cfg }, io, alloc);
 }
