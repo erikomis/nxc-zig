@@ -20,6 +20,7 @@ const usage =
     \\  --minify                Minify output
     \\  --allow-js              Allow JavaScript files
     \\  --verbose               Verbose output
+    \\  --profile               Show per-file compile times
     \\  --config   <path>       Config file (default: tsconfig.json)
     \\  -h, --help              Show help
     \\  --version               Show version
@@ -40,6 +41,7 @@ pub fn main(init: std.process.Init) !void {
     var config_path: ?[]const u8 = null;
     var delete_out_dir = false;
     var verbose = false;
+    var profile = false;
 
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
@@ -75,6 +77,8 @@ pub fn main(init: std.process.Init) !void {
             cfg.allow_js = true;
         } else if (std.mem.eql(u8, arg, "--verbose")) {
             verbose = true;
+        } else if (std.mem.eql(u8, arg, "--profile")) {
+            profile = true;
         } else if (std.mem.eql(u8, arg, "--config")) {
             i += 1;
             if (i >= args.len) fatal("--config requires value");
@@ -143,8 +147,10 @@ pub fn main(init: std.process.Init) !void {
     const start_time = std.Io.Timestamp.now(io, .awake).nanoseconds;
     var compiled: usize = 0;
     var errors: usize = 0;
+    var total_lines: usize = 0;
 
     for (input_paths.items) |path| {
+        const file_start = std.Io.Timestamp.now(io, .awake).nanoseconds;
         if (verbose) std.debug.print("compiling {s}...\n", .{path});
         cli.compilePath(path, .{ .out_file = out_file, .out_dir = out_dir, .config = cfg }, io, alloc) catch |err| {
             std.debug.print("error: failed to compile '{s}': {}\n", .{ path, err });
@@ -152,11 +158,26 @@ pub fn main(init: std.process.Init) !void {
             continue;
         };
         compiled += 1;
+        if (profile) {
+            const file_elapsed = @as(f64, @floatFromInt(std.Io.Timestamp.now(io, .awake).nanoseconds - file_start)) / 1_000_000.0;
+            const source = std.Io.Dir.cwd().readFileAlloc(io, path, alloc, std.Io.Limit.limited(64 * 1024 * 1024)) catch null;
+            var lines: usize = 0;
+            if (source) |s| {
+                defer alloc.free(s);
+                for (s) |c| {
+                    if (c == '\n') lines += 1;
+                }
+            }
+            total_lines += lines;
+            std.debug.print("  {s}  {d:.2}ms  {d} lines\n", .{ std.fs.path.basename(path), file_elapsed, lines });
+        }
     }
 
     const elapsed = @as(f64, @floatFromInt(std.Io.Timestamp.now(io, .awake).nanoseconds - start_time)) / 1_000_000_000.0;
     if (compiled > 0) {
-        std.debug.print("Compiled {d} file(s) in {d:.2}s", .{ compiled, elapsed });
+        std.debug.print("Compiled {d} file(s)", .{compiled});
+        if (total_lines > 0) std.debug.print(", {d} lines", .{total_lines});
+        std.debug.print(" in {d:.2}s", .{elapsed});
         if (errors > 0) std.debug.print(" ({d} errors)", .{errors});
         std.debug.print("\n", .{});
     }
