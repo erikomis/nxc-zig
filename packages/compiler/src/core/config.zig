@@ -95,6 +95,7 @@ pub const TsConfig = struct {
     files: [][]const u8 = &.{},
     include: [][]const u8 = &.{},
     exclude: [][]const u8 = &.{},
+    references: [][]const u8 = &.{},
 };
 
 pub fn readTsConfig(path: []const u8, io: Io, alloc: std.mem.Allocator) !?TsConfig {
@@ -156,6 +157,23 @@ pub fn readTsConfig(path: []const u8, io: Io, alloc: std.mem.Allocator) !?TsConf
     if (root.object.get("exclude")) |v| {
         if (v == .array) {
             cfg.exclude = try parseStringArray(v.array, alloc);
+        }
+    }
+
+    // references: [ { "path": "..." }, ... ]
+    if (root.object.get("references")) |v| {
+        if (v == .array) {
+            var refs = std.ArrayListUnmanaged([]const u8).empty;
+            for (v.array.items) |item| {
+                if (item == .object) {
+                    if (item.object.get("path")) |p| {
+                        if (p == .string) {
+                            try refs.append(alloc, try alloc.dupe(u8, p.string));
+                        }
+                    }
+                }
+            }
+            cfg.references = try refs.toOwnedSlice(alloc);
         }
     }
 

@@ -140,6 +140,10 @@ pub const Parser = struct {
         return t;
     }
 
+    fn advance(self: *Parser) void {
+        _ = self.eat();
+    }
+
     fn syncComments(self: *Parser) !void {
         const comments = self.lexer.takePendingComments();
         if (comments.len == 0) return;

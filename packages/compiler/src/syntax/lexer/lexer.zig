@@ -1,3 +1,5 @@
+// SYNC: Keep in sync with packages/linter/src/lexer.zig
+// These two copies are identical. Any bug fix must be mirrored in both.
 const std = @import("std");
 const tok = @import("token.zig");
 pub const Token = tok.Token;
