@@ -24,6 +24,7 @@ const usage =
     \\  nxc doctor
     \\  nxc clean
     \\  nxc stats
+    \\  nxc ast <file>
     \\
     \\Commands:
     \\  compile     Compile TypeScript/JavaScript to JavaScript
@@ -33,6 +34,7 @@ const usage =
     \\  doctor      Check project health and configuration
     \\  clean       Remove build output and cache
     \\  stats       Show project statistics
+    \\  ast         Print parsed AST of a file
     \\
     \\Compile Options:
     \\  --out-file <path>       Single output file (default: stdout)
@@ -107,6 +109,15 @@ pub fn main(init: std.process.Init) !void {
 
     if (args_slice.len > 1 and std.mem.eql(u8, args_slice[1], "stats")) {
         try runStatsCommand(io, alloc);
+        return;
+    }
+
+    if (args_slice.len > 1 and std.mem.eql(u8, args_slice[1], "ast")) {
+        if (args_slice.len > 2) {
+            try runAstCommand(args_slice[2], io, alloc);
+        } else {
+            try Io.File.stdout().writeStreamingAll(io, "Usage: nxc ast <file>\n");
+        }
         return;
     }
 
@@ -871,8 +882,62 @@ fn runStatsCommand(io: Io, alloc: std.mem.Allocator) !void {
         const show = @min(largest.items.len, 5);
         for (largest.items[0..show]) |f| {
             const kb = @as(f64, @floatFromInt(f.bytes)) / 1024.0;
-            std.debug.print("  {d:>5.1} KB  {d:>4} lines  {s}\n", .{ kb, f.lines, f.path });
+        std.debug.print("  {d:>5.1} KB  {d:>4} lines  {s}\n", .{ kb, f.lines, f.path });
+            }
         }
+    }
+}
+
+fn runAstCommand(path: []const u8, io: Io, alloc: std.mem.Allocator) !void {
+    const source = common.readFileAlloc(path, io, alloc) catch |err| {
+        std.debug.print("error: failed to read '{s}': {}\n", .{ path, err });
+        std.process.exit(1);
+    };
+    defer alloc.free(source);
+
+    const cfg = compiler.Config{};
+    var result = compiler.parse(source, path, cfg, alloc) catch |err| {
+        std.debug.print("error: failed to parse '{s}': {}\n", .{ path, err });
+        std.process.exit(1);
+    };
+    defer result.deinit(alloc);
+
+    if (result.diagnostics.len > 0) {
+        std.debug.print("{d} diagnostic(s):\n", .{result.diagnostics.len});
+        for (result.diagnostics) |d| {
+            std.debug.print("  {s}:{d}:{d}: {s}\n", .{ d.filename, d.line, d.col, d.message });
+        }
+        std.debug.print("\n", .{});
+    }
+
+    if (result.program_id) |prog_id| {
+        std.debug.print("AST ({d} nodes):\n", .{result.node_arena.nodes.items.len});
+        for (result.node_arena.nodes.items, 0..) |node, i| {
+            const span = node.span();
+            const tag = @tagName(node);
+            std.debug.print("  [{d}] {s}", .{ i, tag });
+
+            switch (node) {
+                .ident => |id| std.debug.print(" name='{s}'", .{id.name}),
+                .str_lit => |s| std.debug.print(" value='{s}'", .{s.value}),
+                .num_lit => |n| std.debug.print(" value={s}", .{n.raw}),
+                .import_decl => {
+                    const src = result.node_arena.get(node.import_decl.source);
+                    if (src.* == .str_lit) std.debug.print(" from='{s}'", .{src.str_lit.value});
+                },
+                .fn_decl => {
+                    if (node.fn_decl.id) |id| {
+                        const name = result.node_arena.get(id);
+                        if (name.* == .ident) std.debug.print(" name='{s}'", .{name.ident.name});
+                    }
+                },
+                else => {},
+            }
+            std.debug.print(" @{d}:{d}\n", .{ span.line, span.col });
+        }
+        _ = prog_id;
+    } else {
+        std.debug.print("Parse error: no program generated\n", .{});
     }
 }
 
