@@ -892,8 +892,7 @@ fn runStatsCommand(io: Io, alloc: std.mem.Allocator) !void {
         const show = @min(largest.items.len, 5);
         for (largest.items[0..show]) |f| {
             const kb = @as(f64, @floatFromInt(f.bytes)) / 1024.0;
-        std.debug.print("  {d:>5.1} KB  {d:>4} lines  {s}\n", .{ kb, f.lines, f.path });
-            }
+            std.debug.print("  {d:>5.1} KB  {d:>4} lines  {s}\n", .{ kb, f.lines, f.path });
         }
     }
 }

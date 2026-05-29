@@ -492,7 +492,7 @@ test "parseFormatterConfig reads formatter section from unified config" {
         \\ }
         \\})
     , std.testing.allocator);
-    defer cfg.deinit(std.testing.allocator);
+    defer cfg.deinit();
 
     try std.testing.expectEqual(true, cfg.options.singleQuote);
     try std.testing.expectEqual(false, cfg.options.semi);
