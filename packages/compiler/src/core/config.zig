@@ -50,12 +50,15 @@ pub const Config = struct {
     keep_import_attributes: bool = true,
     remove_comments: bool = true,
     minify: bool = false,
+<<<<<<< HEAD
     inline_source_map: bool = false,
     inline_sources: bool = false,
     declaration_dir: ?[]const u8 = null,
     no_emit: bool = false,
     emit_declaration_only: bool = false,
     allow_js: bool = false,
+=======
+>>>>>>> 6e4d7f2 (feat(cli): adicionar suporte à opção --minify)
     paths: []const PathAlias = &.{},
 };
 

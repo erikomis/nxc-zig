@@ -39,19 +39,21 @@ fn transformSource(env: napi_env, info: napi_callback_info) callconv(.c) napi_va
     if (napi_get_cb_info(env, info, &argc, @ptrCast(&argv), &this_arg, null) != NAPI_OK) return null;
     if (argc < 1) return null;
 
-    const page = std.heap.page_allocator;
-    const source = readStringArg(env, argv[0], page) orelse return null;
-    defer page.free(source);
+    var arena_backing = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_backing.deinit();
+    const alloc = arena_backing.allocator();
 
-    var threaded = std.Io.Threaded.init(page, .{
+    const source = readStringArg(env, argv[0], alloc) orelse return null;
+
+    var threaded = std.Io.Threaded.init(alloc, .{
         .async_limit = .nothing,
         .concurrent_limit = .nothing,
     });
     const io = threaded.io();
 
-    const cfg = compiler.Config{};
-    const compile_result = compiler.transform(source, "input.ts", cfg, io, page) catch return null;
-    defer compile_result.deinit(page);
+    const cfg = compiler.Config{ .minify = false };
+    const compile_result = compiler.transform(source, "input.ts", cfg, io, alloc) catch return null;
+    defer compile_result.deinit(alloc);
 
     // Build result object: { code, map, declarations, diagnostics }
     var result_obj: napi_value = null;

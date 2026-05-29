@@ -26,6 +26,7 @@ const usage =
     \\  --import-interop node|none     ESM interop strategy (default: node)
     \\  --jsx      classic|auto JSX runtime
     \\  --no-ts                 Disable TypeScript stripping
+    \\  --minify                Minify output
     \\  --config   <path>       Config file (default: tsconfig.json)
     \\  --watch                 Watch mode (poll-based)
     \\  -h, --help              Show help
@@ -93,6 +94,8 @@ pub fn main(init: std.process.Init) !void {
                 .classic;
         } else if (std.mem.eql(u8, arg, "--no-ts")) {
             cfg.parser.syntax = .ecmascript;
+        } else if (std.mem.eql(u8, arg, "--minify")) {
+            cfg.minify = true;
         } else if (std.mem.eql(u8, arg, "--config")) {
             i += 1;
             if (i >= args_slice.len) fatal("--config requires value");

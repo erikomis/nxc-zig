@@ -39,13 +39,15 @@ fn parseSource(env: napi_env, info: napi_callback_info) callconv(.c) napi_value 
     if (napi_get_cb_info(env, info, &argc, @ptrCast(&argv), &this_arg, null) != NAPI_OK) return null;
     if (argc < 1) return null;
 
-    const page = std.heap.page_allocator;
-    const source = readStringArg(env, argv[0], page) orelse return null;
-    defer page.free(source);
+    var arena_backing = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_backing.deinit();
+    const alloc = arena_backing.allocator();
+
+    const source = readStringArg(env, argv[0], alloc) orelse return null;
 
     const cfg = compiler.Config{};
-    var parse_result = compiler.parse(source, "input.ts", cfg, page) catch return null;
-    defer parse_result.deinit(page);
+    var parse_result = compiler.parse(source, "input.ts", cfg, alloc) catch return null;
+    defer parse_result.deinit(alloc);
 
     // Build result object: { program, diagnostics }
     var result_obj: napi_value = null;
