@@ -19,6 +19,7 @@ pub const Diagnostic = struct {
     filename: []const u8,
     range: SourceRange,
     rule_code: []const u8,
+    source_line: ?[]const u8 = null,
 };
 
 pub const LintEnvironment = struct {
@@ -160,6 +161,7 @@ pub fn cloneDiagnostic(alloc: std.mem.Allocator, diag: Diagnostic) !Diagnostic {
         .filename = try alloc.dupe(u8, diag.filename),
         .range = diag.range,
         .rule_code = try alloc.dupe(u8, diag.rule_code),
+        .source_line = if (diag.source_line) |s| try alloc.dupe(u8, s) else null,
     };
 }
 
@@ -167,6 +169,7 @@ pub fn freeDiagnostic(alloc: std.mem.Allocator, diag: Diagnostic) void {
     alloc.free(diag.message);
     alloc.free(diag.filename);
     alloc.free(diag.rule_code);
+    if (diag.source_line) |s| alloc.free(s);
 }
 
 pub fn freeDiagnostics(alloc: std.mem.Allocator, diagnostics: []Diagnostic) void {

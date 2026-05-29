@@ -354,6 +354,16 @@ pub const Codegen = struct {
     fn pushMergeScope(self: *Codegen, body: []const NodeId) !void {
         try self.merge_scopes.append(self.alloc, .empty);
         try self.merge_decl_counts.append(self.alloc, .empty);
+
+        var has_merge = false;
+        for (body) |stmt_id| {
+            if (self.mergeDeclNameOfStmt(stmt_id)) |_| {
+                has_merge = true;
+                break;
+            }
+        }
+        if (!has_merge) return;
+
         var i: usize = 0;
         while (i < body.len) : (i += 1) {
             if (self.mergeDeclNameOfStmt(body[i])) |name| {
