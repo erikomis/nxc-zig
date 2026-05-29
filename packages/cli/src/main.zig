@@ -596,6 +596,42 @@ fn runInitCommand(io: Io, alloc: std.mem.Allocator) !void {
         std.debug.print("Created nxc.config.js\n", .{});
     }
 
+    const gitignore =
+        \\dist/
+        \\node_modules/
+        \\.zig-cache/
+        \\zig-out/
+        \\*.js.map
+        \\*.d.ts
+        \\
+    ;
+    if (Io.Dir.cwd().statFile(io, ".gitignore", .{})) |_| {
+        std.debug.print(".gitignore already exists, skipping\n", .{});
+    } else |_| {
+        Io.Dir.cwd().writeFile(io, .{ .sub_path = ".gitignore", .data = gitignore }) catch |err| {
+            std.debug.print("error: failed to create .gitignore: {}\n", .{err});
+        };
+        std.debug.print("Created .gitignore\n", .{});
+    }
+
+    const index_ts =
+        \\export function hello(name: string): string {
+        \\  return `Hello, ${name}!`;
+        \\}
+        \\
+        \\console.log(hello("world"));
+        \\
+    ;
+    Io.Dir.cwd().createDirPath(io, "src") catch {};
+    if (Io.Dir.cwd().statFile(io, "src/index.ts", .{})) |_| {
+        std.debug.print("src/index.ts already exists, skipping\n", .{});
+    } else |_| {
+        Io.Dir.cwd().writeFile(io, .{ .sub_path = "src/index.ts", .data = index_ts }) catch |err| {
+            std.debug.print("error: failed to create src/index.ts: {}\n", .{err});
+        };
+        std.debug.print("Created src/index.ts\n", .{});
+    }
+
     std.debug.print("\nDone. Run 'nxc compile src' to build.\n", .{});
 }
 
