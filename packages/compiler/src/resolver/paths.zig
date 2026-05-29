@@ -278,6 +278,55 @@ fn splitPath(path: []const u8, buf: [][]const u8) [][]const u8 {
     return buf[0..count];
 }
 
+fn resolveExports(exports_val: std.json.Value, pkg_dir: []const u8, src_file: []const u8, io: std.Io, alloc: std.mem.Allocator) !?[]const u8 {
+    if (exports_val == .string) {
+        const exp_path = try std.fs.path.join(alloc, &.{ pkg_dir, exports_val.string });
+        defer alloc.free(exp_path);
+        if (try pathExists(exp_path, io)) {
+            return try makeRelativeToSrcFile(try std.fmt.allocPrint(alloc, "./{s}", .{exp_path}), src_file, alloc);
+        }
+    }
+    if (exports_val == .object) {
+        // Try "." key first (main entry)
+        if (exports_val.object.get(".")) |dot| {
+            if (dot == .string) {
+                const exp_path = try std.fs.path.join(alloc, &.{ pkg_dir, dot.string });
+                defer alloc.free(exp_path);
+                if (try pathExists(exp_path, io)) {
+                    return try makeRelativeToSrcFile(try std.fmt.allocPrint(alloc, "./{s}", .{exp_path}), src_file, alloc);
+                }
+            }
+            if (dot == .object) {
+                // Conditional exports: prefer "import", fallback to "default"
+                for ([_][]const u8{ "import", "default", "require" }) |cond| {
+                    if (dot.object.get(cond)) |cval| {
+                        if (cval == .string) {
+                            const exp_path = try std.fs.path.join(alloc, &.{ pkg_dir, cval.string });
+                            defer alloc.free(exp_path);
+                            if (try pathExists(exp_path, io)) {
+                                return try makeRelativeToSrcFile(try std.fmt.allocPrint(alloc, "./{s}", .{exp_path}), src_file, alloc);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // Try direct string values for conditions
+        for ([_][]const u8{ "import", "default", "require" }) |cond| {
+            if (exports_val.object.get(cond)) |cval| {
+                if (cval == .string) {
+                    const exp_path = try std.fs.path.join(alloc, &.{ pkg_dir, cval.string });
+                    defer alloc.free(exp_path);
+                    if (try pathExists(exp_path, io)) {
+                        return try makeRelativeToSrcFile(try std.fmt.allocPrint(alloc, "./{s}", .{exp_path}), src_file, alloc);
+                    }
+                }
+            }
+        }
+    }
+    return null;
+}
+
 fn resolveNodeModules(pkg: []const u8, src_file: []const u8, io: std.Io, alloc: std.mem.Allocator) !?[]const u8 {
     var search_dir = if (src_file.len > 0) alloc.dupe(u8, std.fs.path.dirname(src_file) orelse ".") catch return null else try alloc.dupe(u8, ".");
     defer alloc.free(search_dir);
@@ -302,6 +351,12 @@ fn resolveNodeModules(pkg: []const u8, src_file: []const u8, io: std.Io, alloc: 
                 defer parsed.deinit();
 
                 if (parsed.value == .object) {
+                    // Check exports field first (modern packages)
+                    if (parsed.value.object.get("exports")) |exports| {
+                        if (try resolveExports(exports, pkg_dir, src_file, io, alloc)) |resolved| {
+                            return resolved;
+                        }
+                    }
                     if (parsed.value.object.get("main")) |main| {
                         if (main == .string) {
                             const main_path = try std.fs.path.join(alloc, &.{ pkg_dir, main.string });
