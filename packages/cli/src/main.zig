@@ -21,12 +21,14 @@ const usage =
     \\  nxc lint [options] <file> [file ...]
     \\  nxc format [options] <file>
     \\  nxc init
+    \\  nxc doctor
     \\
     \\Commands:
     \\  compile     Compile TypeScript/JavaScript to JavaScript
     \\  lint        Lint source files with built-in rules
     \\  format      Format source files (Prettier-compatible)
     \\  init        Create default tsconfig.json + nxc.config.js
+    \\  doctor      Check project health and configuration
     \\
     \\Compile Options:
     \\  --out-file <path>       Single output file (default: stdout)
@@ -86,6 +88,11 @@ pub fn main(init: std.process.Init) !void {
 
     if (args_slice.len > 1 and std.mem.eql(u8, args_slice[1], "init")) {
         try runInitCommand(io, alloc);
+        return;
+    }
+
+    if (args_slice.len > 1 and std.mem.eql(u8, args_slice[1], "doctor")) {
+        try runDoctorCommand(io, alloc);
         return;
     }
 
@@ -678,6 +685,81 @@ fn runInitCommand(io: Io, alloc: std.mem.Allocator) !void {
     }
 
     std.debug.print("\nDone. Run 'nxc compile src' to build.\n", .{});
+}
+
+fn runDoctorCommand(io: Io, alloc: std.mem.Allocator) !void {
+    _ = alloc;
+    const green = "\x1b[32m";
+    const yellow = "\x1b[33m";
+    const red = "\x1b[31m";
+    const reset = "\x1b[0m";
+
+    try Io.File.stdout().writeStreamingAll(io, "nxc doctor v0.1.0\n\n");
+
+    var issues: usize = 0;
+
+    // Check config files
+    const configs = [_][]const u8{ "tsconfig.json", "nxc.config.js" };
+    for (configs) |cfg_name| {
+        if (Io.Dir.cwd().statFile(io, cfg_name, .{})) |_| {
+            std.debug.print("  {s}✓{s} {s} found\n", .{ green, reset, cfg_name });
+            // Validate parse
+            if (std.mem.endsWith(u8, cfg_name, ".json")) {
+                if (config.readTsConfig(cfg_name, io, alloc) catch null) |_| {
+                    std.debug.print("    {s}✓{s} valid JSON/JSON5\n", .{ green, reset });
+                } else |_| {
+                    std.debug.print("    {s}✗{s} failed to parse\n", .{ red, reset });
+                    issues += 1;
+                }
+            }
+        } else |_| {
+            std.debug.print("  {s}○{s} {s} not found\n", .{ yellow, reset, cfg_name });
+        }
+    }
+
+    // Check src directory
+    if (Io.Dir.cwd().statFile(io, "src", .{})) |stat| {
+        if (stat.kind == .directory) {
+            var file_count: usize = 0;
+            var dir = Io.Dir.cwd().openDir(io, "src", .{ .iterate = true }) catch null;
+            if (dir) |*d| {
+                defer d.close(io);
+                var walker = try d.walk(alloc);
+                defer walker.deinit();
+                while (try walker.next(io)) |entry| {
+                    if (entry.kind == .file) file_count += 1;
+                }
+            }
+            if (file_count > 0) {
+                std.debug.print("  {s}✓{s} src/ directory with {d} file(s)\n", .{ green, reset, file_count });
+            } else {
+                std.debug.print("  {s}○{s} src/ directory is empty\n", .{ yellow, reset });
+            }
+        }
+    } else |_| {
+        std.debug.print("  {s}✗{s} src/ directory not found\n", .{ red, reset });
+        issues += 1;
+    }
+
+    // Check node_modules
+    if (Io.Dir.cwd().statFile(io, "node_modules", .{})) |_| {
+        std.debug.print("  {s}✓{s} node_modules/ exists\n", .{ green, reset });
+    } else |_| {
+        std.debug.print("  {s}○{s} node_modules/ not found (install dependencies if needed)\n", .{ yellow, reset });
+    }
+
+    // Check dist
+    if (Io.Dir.cwd().statFile(io, "dist", .{})) |_| {
+        std.debug.print("  {s}✓{s} dist/ output directory exists\n", .{ green, reset });
+    } else |_| {
+        std.debug.print("  {s}○{s} dist/ not created yet\n", .{ yellow, reset });
+    }
+
+    if (issues > 0) {
+        std.debug.print("\n{s}Found {d} issue(s). Run 'nxc init' to create default config.{s}\n", .{ red, issues, reset });
+    } else {
+        std.debug.print("\n{s}All checks passed! Ready to compile.{s}\n", .{ green, reset });
+    }
 }
 
 fn fatal(msg: []const u8) noreturn {
