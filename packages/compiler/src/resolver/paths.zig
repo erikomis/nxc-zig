@@ -39,6 +39,7 @@ pub fn resolveFullPaths(
 
 /// Resolve a single import specifier using only full-path rules:
 /// - baseUrl for existing bare specifiers
+/// - node_modules lookup for bare specifiers
 /// - .ts/.tsx/.mts/.cts to runtime .js/.mjs
 /// - extension probing for extensionless relative specifiers
 pub fn resolveFullPath(
@@ -49,16 +50,23 @@ pub fn resolveFullPath(
 ) ![]const u8 {
     var value = specifier;
 
-    if (cfg.base_url) |base| {
-        if (isBareSpecifier(value)) {
+    if (isBareSpecifier(value)) {
+        if (cfg.base_url) |base| {
             const bare_path = try std.fs.path.join(alloc, &.{ base, value });
             if (try probeExtension(bare_path, ".", io, alloc)) |resolved_path| {
                 const dotslash = try std.fmt.allocPrint(alloc, "./{s}", .{resolved_path});
                 value = try makeRelativeToSrcFile(dotslash, cfg.src_file, alloc);
+                return value;
             } else if (try pathExists(bare_path, io)) {
                 const dotslash = try std.fmt.allocPrint(alloc, "./{s}", .{bare_path});
                 value = try makeRelativeToSrcFile(dotslash, cfg.src_file, alloc);
+                return value;
             }
+        }
+
+        // Try node_modules resolution
+        if (try resolveNodeModules(value, cfg.src_file, io, alloc)) |resolved| {
+            return resolved;
         }
     }
 
@@ -268,4 +276,70 @@ fn splitPath(path: []const u8, buf: [][]const u8) [][]const u8 {
         count += 1;
     }
     return buf[0..count];
+}
+
+fn resolveNodeModules(pkg: []const u8, src_file: []const u8, io: std.Io, alloc: std.mem.Allocator) !?[]const u8 {
+    var search_dir = if (src_file.len > 0) alloc.dupe(u8, std.fs.path.dirname(src_file) orelse ".") catch return null else try alloc.dupe(u8, ".");
+    defer alloc.free(search_dir);
+
+    while (true) {
+        const nm_dir = try std.fs.path.join(alloc, &.{ search_dir, "node_modules" });
+        defer alloc.free(nm_dir);
+        const pkg_dir = try std.fs.path.join(alloc, &.{ nm_dir, pkg });
+        defer alloc.free(pkg_dir);
+
+        if (try pathExists(pkg_dir, io)) {
+            // Try package.json main/exports
+            const pkg_json = try std.fs.path.join(alloc, &.{ pkg_dir, "package.json" });
+            defer alloc.free(pkg_json);
+            const content = std.Io.Dir.cwd().readFileAlloc(io, pkg_json, alloc, std.Io.Limit.limited(16 * 1024)) catch null;
+            if (content) |raw| {
+                defer alloc.free(raw);
+                const parsed = std.json.parseFromSlice(std.json.Value, alloc, raw, .{
+                    .ignore_unknown_fields = true,
+                    .duplicate_field_behavior = .use_last,
+                }) catch return null;
+                defer parsed.deinit();
+
+                if (parsed.value == .object) {
+                    if (parsed.value.object.get("main")) |main| {
+                        if (main == .string) {
+                            const main_path = try std.fs.path.join(alloc, &.{ pkg_dir, main.string });
+                            defer alloc.free(main_path);
+                            if (try pathExists(main_path, io)) {
+                                return try makeRelativeToSrcFile(try std.fmt.allocPrint(alloc, "./{s}", .{main_path}), src_file, alloc);
+                            }
+                        }
+                    }
+                    if (parsed.value.object.get("module")) |mod| {
+                        if (mod == .string) {
+                            const mod_path = try std.fs.path.join(alloc, &.{ pkg_dir, mod.string });
+                            defer alloc.free(mod_path);
+                            if (try pathExists(mod_path, io)) {
+                                return try makeRelativeToSrcFile(try std.fmt.allocPrint(alloc, "./{s}", .{mod_path}), src_file, alloc);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Try index.js, index.mjs
+            for ([_][]const u8{ "/index.js", "/index.mjs", "/index.ts" }) |index_file| {
+                const indexPath = try std.fmt.allocPrint(alloc, "{s}{s}", .{ pkg_dir, index_file });
+                defer alloc.free(indexPath);
+                if (try pathExists(indexPath, io)) {
+                    return try makeRelativeToSrcFile(try std.fmt.allocPrint(alloc, "./{s}", .{indexPath}), src_file, alloc);
+                }
+            }
+        }
+
+        // Go up one directory
+        const parent = std.fs.path.dirname(search_dir) orelse break;
+        if (parent.len >= search_dir.len) break;
+        const new_dir = try alloc.dupe(u8, parent);
+        alloc.free(search_dir);
+        search_dir = new_dir;
+    }
+
+    return null;
 }
