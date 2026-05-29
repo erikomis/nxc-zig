@@ -88,6 +88,10 @@ pub const TsCompilerOptions = struct {
 
 pub const TsConfig = struct {
     compiler_options: TsCompilerOptions = .{},
+    extends: ?[]const u8 = null,
+    files: [][]const u8 = &.{},
+    include: [][]const u8 = &.{},
+    exclude: [][]const u8 = &.{},
 };
 
 pub fn readTsConfig(path: []const u8, io: Io, alloc: std.mem.Allocator) !?TsConfig {
@@ -115,6 +119,40 @@ pub fn readTsConfig(path: []const u8, io: Io, alloc: std.mem.Allocator) !?TsConf
     if (root.object.get("compilerOptions")) |co| {
         if (co == .object) {
             cfg.compiler_options = try parseCompilerOptions(co.object, alloc);
+        }
+    }
+
+    // extends
+    if (root.object.get("extends")) |ext| {
+        if (ext == .string) {
+            const base_dir = std.fs.path.dirname(path) orelse ".";
+            const base_path = try std.fs.path.join(alloc, &.{ base_dir, ext.string });
+            defer alloc.free(base_path);
+
+            if (try readTsConfig(base_path, io, alloc)) |base| {
+                mergeOpts(&cfg.compiler_options, base.compiler_options);
+            }
+        }
+    }
+
+    // files
+    if (root.object.get("files")) |v| {
+        if (v == .array) {
+            cfg.files = try parseStringArray(v.array, alloc);
+        }
+    }
+
+    // include
+    if (root.object.get("include")) |v| {
+        if (v == .array) {
+            cfg.include = try parseStringArray(v.array, alloc);
+        }
+    }
+
+    // exclude
+    if (root.object.get("exclude")) |v| {
+        if (v == .array) {
+            cfg.exclude = try parseStringArray(v.array, alloc);
         }
     }
 
@@ -235,7 +273,32 @@ pub fn applyCompilerOptions(opts: TsCompilerOptions, cfg: *Config) !void {
     // emitDeclarationOnly, module: parsed but consumed by CLI layer.
 }
 
-
+fn mergeOpts(into: *TsCompilerOptions, base: TsCompilerOptions) void {
+    if (base.target != null and into.target == null) into.target = base.target;
+    if (base.jsx != null and into.jsx == null) into.jsx = base.jsx;
+    if (base.jsx_import_source != null and into.jsx_import_source == null) into.jsx_import_source = base.jsx_import_source;
+    if (base.base_url != null and into.base_url == null) into.base_url = base.base_url;
+    if (base.strict != null and into.strict == null) into.strict = base.strict;
+    if (base.experimental_decorators != null and into.experimental_decorators == null) into.experimental_decorators = base.experimental_decorators;
+    if (base.esmodule_interop != null and into.esmodule_interop == null) into.esmodule_interop = base.esmodule_interop;
+    if (base.source_maps != null and into.source_maps == null) into.source_maps = base.source_maps;
+    if (base.declaration != null and into.declaration == null) into.declaration = base.declaration;
+    if (base.paths.len > 0 and into.paths.len == 0) into.paths = base.paths;
+    if (base.out_dir != null and into.out_dir == null) into.out_dir = base.out_dir;
+    if (base.out_file != null and into.out_file == null) into.out_file = base.out_file;
+    if (base.root_dir != null and into.root_dir == null) into.root_dir = base.root_dir;
+    if (base.allow_js != null and into.allow_js == null) into.allow_js = base.allow_js;
+    if (base.check_js != null and into.check_js == null) into.check_js = base.check_js;
+    if (base.remove_comments != null and into.remove_comments == null) into.remove_comments = base.remove_comments;
+    if (base.no_emit != null and into.no_emit == null) into.no_emit = base.no_emit;
+    if (base.resolve_json_module != null and into.resolve_json_module == null) into.resolve_json_module = base.resolve_json_module;
+    if (base.isolated_modules != null and into.isolated_modules == null) into.isolated_modules = base.isolated_modules;
+    if (base.declaration_dir != null and into.declaration_dir == null) into.declaration_dir = base.declaration_dir;
+    if (base.inline_source_map != null and into.inline_source_map == null) into.inline_source_map = base.inline_source_map;
+    if (base.inline_sources != null and into.inline_sources == null) into.inline_sources = base.inline_sources;
+    if (base.emit_declaration_only != null and into.emit_declaration_only == null) into.emit_declaration_only = base.emit_declaration_only;
+    if (base.module != null and into.module == null) into.module = base.module;
+}
 
 fn parsePaths(obj: std.json.ObjectMap, alloc: std.mem.Allocator) ![]PathAlias {
     var result = std.ArrayListUnmanaged(PathAlias).empty;
@@ -269,4 +332,104 @@ fn parsePaths(obj: std.json.ObjectMap, alloc: std.mem.Allocator) ![]PathAlias {
     }
 
     return result.toOwnedSlice(alloc);
+}
+
+fn parseStringArray(arr: std.json.Array, alloc: std.mem.Allocator) ![][]const u8 {
+    var result = std.ArrayListUnmanaged([]const u8).empty;
+    errdefer {
+        for (result.items) |s| alloc.free(s);
+        result.deinit(alloc);
+    }
+    for (arr.items) |item| {
+        if (item == .string) {
+            try result.append(alloc, try alloc.dupe(u8, item.string));
+        }
+    }
+    return result.toOwnedSlice(alloc);
+}
+
+pub fn resolveConfigFiles(cfg: *const TsConfig, base_path: []const u8, io: Io, alloc: std.mem.Allocator) ![][]const u8 {
+    var result = std.ArrayListUnmanaged([]const u8).empty;
+
+    if (cfg.files.len > 0) {
+        for (cfg.files) |f| {
+            const full = try std.fs.path.join(alloc, &.{ base_path, f });
+            try result.append(alloc, full);
+        }
+    } else {
+        const patterns: []const []const u8 = if (cfg.include.len > 0) cfg.include else &.{ "**/*.ts", "**/*.tsx", "**/*.mts", "**/*.cts" };
+        for (patterns) |pat| {
+            const dir_path = std.fs.path.dirname(pat);
+            const glob = std.fs.path.basename(pat);
+            const search_dir = if (dir_path) |d| try std.fs.path.join(alloc, &.{ base_path, d }) else try alloc.dupe(u8, base_path);
+            defer if (dir_path != null) alloc.free(search_dir);
+
+            var dir = std.Io.Dir.cwd().openDir(io, search_dir, .{ .iterate = true }) catch continue;
+            defer dir.close(io);
+            var walker = try dir.walk(alloc);
+            defer walker.deinit();
+
+            while (try walker.next(io)) |entry| {
+                if (entry.kind != .file) continue;
+                if (!matchGlob(entry.basename, glob)) continue;
+
+                var excluded = false;
+                for (cfg.exclude) |ex| {
+                    if (std.mem.eql(u8, entry.path, ex) or std.mem.eql(u8, entry.basename, ex)) {
+                        excluded = true;
+                        break;
+                    }
+                }
+                if (!excluded) {
+                    const full = try std.fs.path.join(alloc, &.{ search_dir, entry.path });
+                    try result.append(alloc, full);
+                }
+            }
+        }
+    }
+
+    return result.toOwnedSlice(alloc);
+}
+
+fn matchGlob(name: []const u8, pattern: []const u8) bool {
+    if (std.mem.eql(u8, pattern, "*")) return true;
+    if (std.mem.startsWith(u8, pattern, "*.")) {
+        return std.mem.endsWith(u8, name, pattern[1..]);
+    }
+    if (std.mem.eql(u8, pattern, name)) return true;
+    if (std.mem.endsWith(u8, pattern, "*")) {
+        return std.mem.startsWith(u8, name, pattern[0 .. pattern.len - 1]);
+    }
+    if (std.mem.startsWith(u8, pattern, "**/")) {
+        return std.mem.endsWith(u8, name, pattern[3..]);
+    }
+    return false;
+}
+
+pub fn findTsConfig(io: Io, alloc: std.mem.Allocator) ?[]const u8 {
+    const cwd = std.process.currentPathAlloc(io, alloc) catch return null;
+    defer alloc.free(cwd);
+
+    var dir = alloc.dupe(u8, cwd) catch return null;
+    defer alloc.free(dir);
+
+    const config_files = [_][]const u8{ "tsconfig.json", "jsconfig.json" };
+
+    while (true) {
+        for (config_files) |name| {
+            const path = std.fs.path.join(alloc, &.{ dir, name }) catch continue;
+            defer alloc.free(path);
+            if (std.Io.Dir.cwd().statFile(io, path, .{})) |stat| {
+                if (stat.kind == .file) return alloc.dupe(u8, path) catch null;
+            } else |_| {}
+        }
+
+        const parent = std.fs.path.dirname(dir) orelse break;
+        if (parent.len >= dir.len) break;
+        const new_dir = alloc.dupe(u8, parent) catch break;
+        alloc.free(dir);
+        dir = new_dir;
+    }
+
+    return null;
 }
