@@ -17,7 +17,7 @@ const usage =
     \\Usage:
     \\  nxc-formatter [--write] [--check] [--out-file <path>] [--config <path>] [--watch] [--verbose] [<file|dir> ...]
     \\
-    \\If no paths given, formats all source files in the current directory recursively.
+    \\If a directory is given, formats all source files in it recursively.
     \\  -h, --help              Show help
     \\  --version               Show version
     \\

@@ -22,6 +22,7 @@ const usage =
     \\  nxc format [options] <file>
     \\  nxc init
     \\  nxc doctor
+    \\  nxc clean
     \\
     \\Commands:
     \\  compile     Compile TypeScript/JavaScript to JavaScript
@@ -29,6 +30,7 @@ const usage =
     \\  format      Format source files (Prettier-compatible)
     \\  init        Create default tsconfig.json + nxc.config.js
     \\  doctor      Check project health and configuration
+    \\  clean       Remove build output and cache
     \\
     \\Compile Options:
     \\  --out-file <path>       Single output file (default: stdout)
@@ -93,6 +95,11 @@ pub fn main(init: std.process.Init) !void {
 
     if (args_slice.len > 1 and std.mem.eql(u8, args_slice[1], "doctor")) {
         try runDoctorCommand(io, alloc);
+        return;
+    }
+
+    if (args_slice.len > 1 and std.mem.eql(u8, args_slice[1], "clean")) {
+        try runCleanCommand(io);
         return;
     }
 
@@ -760,6 +767,22 @@ fn runDoctorCommand(io: Io, alloc: std.mem.Allocator) !void {
     } else {
         std.debug.print("\n{s}All checks passed! Ready to compile.{s}\n", .{ green, reset });
     }
+}
+
+fn runCleanCommand(io: Io) !void {
+    const dirs = [_][]const u8{ "dist", ".zig-cache", "zig-out", "node_modules/nxc" };
+    for (dirs) |dir| {
+        if (Io.Dir.cwd().statFile(io, dir, .{})) |stat| {
+            if (stat.kind == .directory) {
+                Io.Dir.cwd().deleteTree(io, dir) catch |err| {
+                    std.debug.print("warning: failed to remove {s}: {}\n", .{ dir, err });
+                    continue;
+                };
+                std.debug.print("Removed {s}/\n", .{dir});
+            }
+        } else |_| {}
+    }
+    std.debug.print("Cleaned build artifacts\n", .{});
 }
 
 fn fatal(msg: []const u8) noreturn {
