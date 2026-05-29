@@ -34,7 +34,7 @@ pub fn main(init: std.process.Init) !void {
     defer input_paths.deinit(alloc);
     var out_file: ?[]const u8 = null;
     var out_dir: ?[]const u8 = "dist";
-    var config_path: []const u8 = "tsconfig.json";
+    var config_path: ?[]const u8 = null;
     var delete_out_dir = false;
 
     var i: usize = 1;
@@ -78,7 +78,28 @@ pub fn main(init: std.process.Init) !void {
         }
     }
 
-    if (config.readTsConfig(config_path, io, alloc) catch null) |ts| try config.applyCompilerOptions(ts.compiler_options, &cfg);
+    // Auto-discover tsconfig if none specified
+    const resolved_config_path = config_path orelse config.findTsConfig(io, alloc) orelse "tsconfig.json";
+    defer if (config_path == null and !std.mem.eql(u8, resolved_config_path, "tsconfig.json")) alloc.free(resolved_config_path);
+
+    if (config.readTsConfig(resolved_config_path, io, alloc) catch null) |ts| {
+        try config.applyCompilerOptions(ts.compiler_options, &cfg);
+
+        for (ts.references) |ref| {
+            const ref_tsconfig = try std.fs.path.join(alloc, &.{ ref, "tsconfig.json" });
+            defer alloc.free(ref_tsconfig);
+            const ref_out = try std.fs.path.join(alloc, &.{ ref, out_dir orelse "dist" });
+            defer alloc.free(ref_out);
+
+            if (config.readTsConfig(ref_tsconfig, io, alloc) catch null) |ref_ts| {
+                var ref_cfg = cfg;
+                config.applyCompilerOptions(ref_ts.compiler_options, &ref_cfg) catch {};
+                cli.compileInput(ref, null, ref_out, ref_cfg, io, alloc) catch |err| {
+                    std.debug.print("warning: failed to compile reference '{s}': {}\n", .{ ref, err });
+                };
+            }
+        }
+    }
 
     if (input_paths.items.len == 0) {
         try std.Io.File.stdout().writeStreamingAll(io, usage);

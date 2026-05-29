@@ -59,7 +59,7 @@ pub fn main(init: std.process.Init) !void {
     defer input_paths.deinit(alloc);
     var out_file: ?[]const u8 = null;
     var out_dir: ?[]const u8 = "dist";
-    var config_path: []const u8 = "tsconfig.json";
+    var config_path: ?[]const u8 = null;
     var watch = false;
     var delete_out_dir = false;
     var i: usize = if (args_slice.len > 1 and std.mem.eql(u8, args_slice[1], "compile")) 2 else 1;
@@ -112,7 +112,10 @@ pub fn main(init: std.process.Init) !void {
         }
     }
 
-    if (config.readTsConfig(config_path, io, alloc) catch null) |ts| {
+    const resolved_config_path = config_path orelse compiler.findTsConfig(io, alloc) orelse "tsconfig.json";
+    defer if (config_path == null and !std.mem.eql(u8, resolved_config_path, "tsconfig.json")) alloc.free(resolved_config_path);
+
+    if (config.readTsConfig(resolved_config_path, io, alloc) catch null) |ts| {
         ts.compiler_options.applyTo(&cfg) catch |err| switch (err) {
             error.UnsupportedTsTarget => {
                 const msg = "Unsupported tsconfig target. Supported: es2015, es2016, es2017, es2018, es2019, es2020, es2022, es2024, and esnext.";
@@ -125,6 +128,21 @@ pub fn main(init: std.process.Init) !void {
                 std.process.exit(1);
             },
         };
+
+        for (ts.references) |ref| {
+            const ref_tsconfig = try std.fs.path.join(alloc, &.{ ref, "tsconfig.json" });
+            defer alloc.free(ref_tsconfig);
+            const ref_out = try std.fs.path.join(alloc, &.{ ref, out_dir orelse "dist" });
+            defer alloc.free(ref_out);
+
+            if (config.readTsConfig(ref_tsconfig, io, alloc) catch null) |ref_ts| {
+                var ref_cfg = cfg;
+                config.applyCompilerOptions(ref_ts.compiler_options, &ref_cfg) catch {};
+                cli.compileInput(ref, null, ref_out, ref_cfg, io, alloc) catch |err| {
+                    std.debug.print("warning: failed to compile reference '{s}': {}\n", .{ ref, err });
+                };
+            }
+        }
     }
 
     if (input_paths.items.len == 0) {
