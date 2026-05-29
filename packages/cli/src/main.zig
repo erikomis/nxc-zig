@@ -112,6 +112,10 @@ pub fn main(init: std.process.Init) !void {
         }
     }
 
+    var ts_files: [][]const u8 = &.{};
+    var ts_include: [][]const u8 = &.{};
+    var ts_exclude: [][]const u8 = &.{};
+
     const resolved_config_path = config_path orelse compiler.findTsConfig(io, alloc) orelse "tsconfig.json";
     defer if (config_path == null and !std.mem.eql(u8, resolved_config_path, "tsconfig.json")) alloc.free(resolved_config_path);
 
@@ -129,6 +133,10 @@ pub fn main(init: std.process.Init) !void {
             },
         };
 
+        ts_files = ts.files;
+        ts_include = ts.include;
+        ts_exclude = ts.exclude;
+
         for (ts.references) |ref| {
             const ref_tsconfig = try std.fs.path.join(alloc, &.{ ref, "tsconfig.json" });
             defer alloc.free(ref_tsconfig);
@@ -142,6 +150,16 @@ pub fn main(init: std.process.Init) !void {
                     std.debug.print("warning: failed to compile reference '{s}': {}\n", .{ ref, err });
                 };
             }
+        }
+    }
+
+    // Use tsconfig files/include when no explicit paths given
+    if (input_paths.items.len == 0 and (ts_files.len > 0 or ts_include.len > 0)) {
+        const base_dir = std.fs.path.dirname(resolved_config_path) orelse ".";
+        const cfg_files = config.TsConfig{ .files = ts_files, .include = ts_include, .exclude = ts_exclude };
+        const found = config.resolveConfigFiles(&cfg_files, base_dir, io, alloc) catch &.{};
+        for (found) |f| {
+            try input_paths.append(alloc, f);
         }
     }
 

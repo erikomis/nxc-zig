@@ -439,7 +439,7 @@ pub fn findTsConfig(io: Io, alloc: std.mem.Allocator) ?[]const u8 {
     var dir = alloc.dupe(u8, cwd) catch return null;
     defer alloc.free(dir);
 
-    const config_files = [_][]const u8{ "tsconfig.json", "jsconfig.json" };
+    const config_files = [_][]const u8{ "tsconfig.json", "jsconfig.json", "nxc.config.js", "nxc.json", ".nxrc", ".nxrc.json" };
 
     while (true) {
         for (config_files) |name| {
