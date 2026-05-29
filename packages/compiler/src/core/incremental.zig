@@ -3,6 +3,8 @@ const cache = @import("cache");
 const compiler = @import("compiler");
 const config = @import("config");
 const diagnostics = @import("diagnostics");
+const parser_mod = @import("parser");
+const ast_mod = @import("ast");
 
 const CacheEntry = cache.CacheEntry;
 const CacheStore = cache.CacheStore;
@@ -64,11 +66,29 @@ pub const IncrementalCompiler = struct {
         if (result.declarations) |d| out_hasher.update(d);
         const output_hash = out_hasher.final();
 
-        const ts = std.Io.Timestamp.now(io, .realtime);
+        const deps = try extractDeps(path, io, alloc);
+        defer {
+            for (deps) |d| alloc.free(d);
+            alloc.free(deps);
+        }
+
+        var dep_hashes = std.ArrayListUnmanaged(u64).empty;
+        for (deps) |dep| {
+            const dep_hash = cache.hashFile(dep, io, alloc) catch continue;
+            try dep_hashes.append(alloc, dep_hash);
+        }
+
+        var deps_joined = std.ArrayListUnmanaged(u8).empty;
+        for (deps, 0..) |dep, i| {
+            if (i > 0) try deps_joined.append(alloc, ',');
+            try deps_joined.appendSlice(alloc, dep);
+        }
+
+        const ts = std.Io.Timestamp.now(io, .real);
         const entry = CacheEntry{
             .source_hash = source_hash,
-            .deps = try alloc.dupe(u8, ""),
-            .dep_hashes = try alloc.dupe(u64, &.{}),
+            .deps = try deps_joined.toOwnedSlice(alloc),
+            .dep_hashes = try dep_hashes.toOwnedSlice(alloc),
             .output_hash = output_hash,
             .last_modified = ts.nanoseconds,
             .source_path = try alloc.dupe(u8, path),
@@ -76,6 +96,23 @@ pub const IncrementalCompiler = struct {
         try self.cache.put(alloc, path, entry);
 
         return result;
+    }
+
+    pub fn isStaleCheck(self: *IncrementalCompiler, path: []const u8, current_hash: u64, io: std.Io, alloc: std.mem.Allocator) bool {
+        if (self.cache.isStale(path, current_hash)) return true;
+        const entry = self.cache.get(path) orelse return true;
+        for (entry.dep_hashes, 0..) |cached_hash, i| {
+            var it = std.mem.splitScalar(u8, entry.deps, ',');
+            var j: usize = 0;
+            while (it.next()) |dep_path| : (j += 1) {
+                if (j != i) continue;
+                if (dep_path.len == 0) continue;
+                const current_dep_hash = cache.hashFile(dep_path, io, alloc) catch return true;
+                if (current_dep_hash != cached_hash) return true;
+                break;
+            }
+        }
+        return false;
     }
 
     pub fn deinit(self: *IncrementalCompiler, io: std.Io, alloc: std.mem.Allocator) void {
@@ -133,4 +170,80 @@ fn jsPathFromSourcePath(path: []const u8, alloc: std.mem.Allocator) ![]u8 {
         return std.fmt.allocPrint(alloc, "{s}.cjs", .{path[0 .. path.len - 4]});
     }
     return std.fmt.allocPrint(alloc, "{s}.js", .{path});
+}
+
+fn extractDeps(path: []const u8, io: std.Io, alloc: std.mem.Allocator) ![][]const u8 {
+    const source = std.Io.Dir.cwd().readFileAlloc(io, path, alloc, std.Io.Limit.limited(10 * 1024 * 1024)) catch return &.{};
+    defer alloc.free(source);
+
+    var arena_backing = std.heap.ArenaAllocator.init(alloc);
+    defer arena_backing.deinit();
+    const a = arena_backing.allocator();
+
+    var diags = diagnostics.DiagnosticList{};
+    var node_arena = ast_mod.Arena.init(a);
+    var p = parser_mod.Parser.init(source, path, &node_arena, a, &diags, .{ .check = false });
+
+    const program_id = p.parseProgram() catch return &.{};
+    _ = program_id;
+
+    var result = std.ArrayListUnmanaged([]const u8).empty;
+    const dir = std.fs.path.dirname(path) orelse ".";
+
+    for (node_arena.nodes.items) |node| {
+        if (node == .import_decl) {
+            const src = node.import_decl.source;
+            const src_node = node_arena.get(src);
+            if (src_node.* == .str_lit) {
+                const import_path = src_node.str_lit.value;
+                if (!std.mem.startsWith(u8, import_path, ".") and !std.mem.startsWith(u8, import_path, "/")) continue;
+                const resolved = std.fs.path.join(alloc, &.{ dir, import_path }) catch continue;
+                const with_ext = try resolveTsExt(resolved, io, alloc);
+                try result.append(alloc, with_ext);
+            }
+        }
+        if (node == .export_decl) {
+            const exp = node.export_decl;
+            switch (exp.kind) {
+                .named => |n| {
+                    if (n.source) |src_id| {
+                        const src_node = node_arena.get(src_id);
+                        if (src_node.* == .str_lit) {
+                            const exp_path = src_node.str_lit.value;
+                            if (!std.mem.startsWith(u8, exp_path, ".") and !std.mem.startsWith(u8, exp_path, "/")) continue;
+                            const resolved = std.fs.path.join(alloc, &.{ dir, exp_path }) catch continue;
+                            const with_ext = try resolveTsExt(resolved, io, alloc);
+                            try result.append(alloc, with_ext);
+                        }
+                    }
+                },
+                .all => |all_exp| {
+                    const src_node = node_arena.get(all_exp.source);
+                    if (src_node.* == .str_lit) {
+                        const exp_path = src_node.str_lit.value;
+                        if (!std.mem.startsWith(u8, exp_path, ".") and !std.mem.startsWith(u8, exp_path, "/")) continue;
+                        const resolved = std.fs.path.join(alloc, &.{ dir, exp_path }) catch continue;
+                        const with_ext = try resolveTsExt(resolved, io, alloc);
+                        try result.append(alloc, with_ext);
+                    }
+                },
+                else => {},
+            }
+        }
+    }
+
+    return result.toOwnedSlice(alloc);
+}
+
+fn resolveTsExt(path: []const u8, io: std.Io, alloc: std.mem.Allocator) ![]u8 {
+    const extensions = [_][]const u8{ ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", "/index.ts", "/index.tsx", "/index.js" };
+    for (extensions) |ext| {
+        const candidate = try std.fmt.allocPrint(alloc, "{s}{s}", .{ path, ext });
+        if (std.Io.Dir.cwd().statFile(io, candidate, .{})) |_| {
+            return candidate;
+        } else |_| {
+            alloc.free(candidate);
+        }
+    }
+    return try alloc.dupe(u8, path);
 }
