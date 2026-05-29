@@ -17,6 +17,7 @@ const usage =
     \\  nxc compile [options] <file|dir> [file|dir ...]
     \\  nxc lint <file> [file ...]
     \\  nxc format [--write] [--check] [--out-file <path>] <file>
+    \\  nxc init                  Create default config files
     \\  nxc [options] <file|dir> [file|dir ...]
     \\
     \\Options:
@@ -52,6 +53,11 @@ pub fn main(init: std.process.Init) !void {
 
     if (args_slice.len > 1 and std.mem.eql(u8, args_slice[1], "format")) {
         try runFormatCommand(args_slice[2..], io, alloc);
+        return;
+    }
+
+    if (args_slice.len > 1 and std.mem.eql(u8, args_slice[1], "init")) {
+        try runInitCommand(io, alloc);
         return;
     }
 
@@ -502,6 +508,79 @@ fn printPathError(action: []const u8, path: []const u8, err: anyerror) void {
         error.FileNotFound => std.debug.print("error: failed to {s} '{s}': file not found\n", .{ action, path }),
         else => std.debug.print("error: failed to {s} '{s}': {}\n", .{ action, path, err }),
     }
+}
+
+fn runInitCommand(io: Io, alloc: std.mem.Allocator) !void {
+    _ = alloc;
+
+    const tsconfig =
+        \\{
+        \\  "compilerOptions": {
+        \\    "target": "ES2022",
+        \\    "module": "ESNext",
+        \\    "jsx": "react-jsx",
+        \\    "jsxImportSource": "react",
+        \\    "declaration": true,
+        \\    "sourceMap": true,
+        \\    "esModuleInterop": true,
+        \\    "strict": true,
+        \\    "outDir": "dist",
+        \\    "rootDir": "src",
+        \\    "paths": {
+        \\      "@/*": ["./src/*"]
+        \\    }
+        \\  },
+        \\  "include": ["src"],
+        \\  "exclude": ["node_modules", "dist"]
+        \\}
+        \\
+    ;
+
+    const nxc_config =
+        \\export default defineConfig({
+        \\  env: { node: true },
+        \\  formatter: {
+        \\    singleQuote: true,
+        \\    semi: true,
+        \\    trailingComma: 'all',
+        \\    tabWidth: 2,
+        \\    printWidth: 100,
+        \\  },
+        \\  rules: {
+        \\    'no-console': 'warn',
+        \\    'no-debugger': 'error',
+        \\    'no-unused-vars': 'warn',
+        \\    'no-var': 'error',
+        \\    'prefer-const': 'warn',
+        \\    'eqeqeq': 'error',
+        \\  },
+        \\  compilerOptions: {
+        \\    target: 'ES2022',
+        \\    outDir: 'dist',
+        \\  }
+        \\})
+        \\
+    ;
+
+    if (Io.Dir.cwd().statFile(io, "tsconfig.json", .{})) |_| {
+        std.debug.print("tsconfig.json already exists, skipping\n", .{});
+    } else |_| {
+        Io.Dir.cwd().writeFile(io, .{ .sub_path = "tsconfig.json", .data = tsconfig }) catch |err| {
+            std.debug.print("error: failed to create tsconfig.json: {}\n", .{err});
+        };
+        std.debug.print("Created tsconfig.json\n", .{});
+    }
+
+    if (Io.Dir.cwd().statFile(io, "nxc.config.js", .{})) |_| {
+        std.debug.print("nxc.config.js already exists, skipping\n", .{});
+    } else |_| {
+        Io.Dir.cwd().writeFile(io, .{ .sub_path = "nxc.config.js", .data = nxc_config }) catch |err| {
+            std.debug.print("error: failed to create nxc.config.js: {}\n", .{err});
+        };
+        std.debug.print("Created nxc.config.js\n", .{});
+    }
+
+    std.debug.print("\nDone. Run 'nxc compile src' to build.\n", .{});
 }
 
 fn fatal(msg: []const u8) noreturn {
