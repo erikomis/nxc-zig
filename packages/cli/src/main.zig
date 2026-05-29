@@ -854,7 +854,9 @@ fn runStatsCommand(io: Io, alloc: std.mem.Allocator) !void {
             const source = Io.Dir.cwd().readFileAlloc(io, path, alloc, std.Io.Limit.limited(1 * 1024 * 1024)) catch continue;
             defer alloc.free(source);
             var file_lines: usize = 0;
-            for (source) |c| if (c == '\n') file_lines += 1;
+            for (source) |c| {
+                if (c == '\n') file_lines += 1;
+            }
 
             try largest.append(alloc, .{ .path = try alloc.dupe(u8, path), .lines = file_lines, .bytes = source.len });
             count += 1;
