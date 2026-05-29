@@ -291,6 +291,7 @@ pub fn applyCompilerOptions(opts: TsCompilerOptions, cfg: *Config) !void {
     if (opts.declaration_dir) |d| cfg.*.declaration_dir = d;
     if (opts.no_emit) |v| cfg.*.no_emit = v;
     if (opts.emit_declaration_only) |v| cfg.*.emit_declaration_only = v;
+    if (opts.allow_js) |v| cfg.*.allow_js = v;
     if (opts.module) |m| {
         if (std.ascii.eqlIgnoreCase(m, "commonjs") or std.ascii.eqlIgnoreCase(m, "cjs")) {
             cfg.*.module.target = .cjs;

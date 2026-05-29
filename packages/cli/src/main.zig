@@ -27,6 +27,7 @@ const usage =
     \\  --jsx      classic|auto JSX runtime
     \\  --no-ts                 Disable TypeScript stripping
     \\  --minify                Minify output
+    \\  --allow-js              Allow JavaScript files
     \\  --config   <path>       Config file (default: tsconfig.json)
     \\  --watch                 Watch mode (poll-based)
     \\  -h, --help              Show help
@@ -96,6 +97,8 @@ pub fn main(init: std.process.Init) !void {
             cfg.parser.syntax = .ecmascript;
         } else if (std.mem.eql(u8, arg, "--minify")) {
             cfg.minify = true;
+        } else if (std.mem.eql(u8, arg, "--allow-js")) {
+            cfg.allow_js = true;
         } else if (std.mem.eql(u8, arg, "--config")) {
             i += 1;
             if (i >= args_slice.len) fatal("--config requires value");

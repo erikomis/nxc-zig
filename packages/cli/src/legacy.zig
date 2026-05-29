@@ -125,7 +125,7 @@ pub fn compileInput(path: []const u8, out_file: ?[]const u8, out_dir: ?[]const u
             try compileDirAll(path, od, cfg, io, alloc);
         },
         .file => {
-            if (isCopyableJs(std.fs.path.basename(path))) {
+            if (isCopyableJs(std.fs.path.basename(path)) and !cfg.allow_js) {
                 try copySingle(path, path, out_file, out_dir, io, alloc);
                 return;
             }
