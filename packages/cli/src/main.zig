@@ -252,8 +252,8 @@ pub fn main(init: std.process.Init) !void {
     var compiled: usize = 0;
     var errors: usize = 0;
 
-    for (input_paths.items) |path| {
-        if (verbose) std.debug.print("compiling {s}...\n", .{path});
+    for (input_paths.items, 0..) |path, idx| {
+        if (verbose) std.debug.print("[{d}/{d}] compiling {s}...\n", .{ idx + 1, input_paths.items.len, path });
         switch (cli.classifyInputPath(path, io)) {
             .directory => {
                 try cli.compileInput(path, null, out_dir orelse "dist", cfg, io, alloc);

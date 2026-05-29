@@ -153,9 +153,9 @@ pub fn main(init: std.process.Init) !void {
     var errors: usize = 0;
     var total_lines: usize = 0;
 
-    for (input_paths.items) |path| {
+    for (input_paths.items, 0..) |path, idx| {
         const file_start = std.Io.Timestamp.now(io, .awake).nanoseconds;
-        if (verbose) std.debug.print("compiling {s}...\n", .{path});
+        if (verbose) std.debug.print("[{d}/{d}] compiling {s}...\n", .{ idx + 1, input_paths.items.len, path });
         cli.compilePath(path, .{ .out_file = out_file, .out_dir = out_dir, .config = cfg }, io, alloc) catch |err| {
             if (bail_on_error) {
                 std.debug.print("error: failed to compile '{s}': {}\n", .{ path, err });
