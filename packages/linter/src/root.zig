@@ -198,8 +198,50 @@ fn lintWithEnv(source: []const u8, filename: []const u8, registry: Registry, env
         fixes.deinit(alloc);
     }
 
+    const builtin_visitors = rules.buildVisitors();
+
+    var active_visitors = std.ArrayListUnmanaged(rules.RuleVisitor).empty;
+    defer active_visitors.deinit(alloc);
+
+    if (program_id != null) {
+        for (registry.rules.items) |rule| {
+            if (rule.severity == .off) continue;
+            for (builtin_visitors) |v| {
+                if (std.mem.eql(u8, rule.code, v.rule.code)) {
+                    var adapted = v;
+                    adapted.rule = rule;
+                    try active_visitors.append(alloc, adapted);
+                    break;
+                }
+            }
+        }
+    }
+
+    if (active_visitors.items.len > 0) {
+        try rules.scanAllNodes(.{
+            .source = source,
+            .filename = filename,
+            .env = env,
+            .alloc = alloc,
+            .diagnostics = &diagnostics,
+            .fixes = &fixes,
+            .ast_arena = @ptrCast(&node_arena),
+            .ast_program_id = @as(u32, program_id.?),
+        }, active_visitors.items);
+    }
+
     for (registry.rules.items) |rule| {
         if (rule.severity == .off) continue;
+
+        var already_visited = false;
+        for (builtin_visitors) |v| {
+            if (std.mem.eql(u8, rule.code, v.rule.code)) {
+                already_visited = true;
+                break;
+            }
+        }
+        if (already_visited) continue;
+
         try rule.run(.{
             .source = source,
             .filename = filename,
@@ -210,8 +252,11 @@ fn lintWithEnv(source: []const u8, filename: []const u8, registry: Registry, env
             .ast_arena = if (program_id != null) @ptrCast(&node_arena) else null,
             .ast_program_id = if (program_id) |pid| @as(u32, pid) else null,
         }, rule);
+    }
 
+    for (registry.rules.items) |rule| {
         if (rule.fix) |fix_fn| {
+            if (rule.severity == .off) continue;
             try fix_fn(.{
                 .source = source,
                 .filename = filename,
@@ -229,29 +274,31 @@ fn lintWithEnv(source: []const u8, filename: []const u8, registry: Registry, env
     if (fixes.items.len > 0) {
         std.sort.insertion(common.LintFix, fixes.items, {}, struct {
             fn lessThan(_: void, lhs: common.LintFix, rhs: common.LintFix) bool {
-                return lhs.start > rhs.start;
+                return lhs.start < rhs.start;
             }
         }.lessThan);
 
-        var result = try alloc.alloc(u8, source.len);
-        @memcpy(result, source);
-
-        var result_owned = true;
-        defer if (result_owned) alloc.free(result);
-
+        var total_len: usize = source.len;
         for (fixes.items) |f| {
-            const new_len = result.len - (f.end - f.start) + f.replacement.len;
-            var new_result = try alloc.alloc(u8, new_len);
-            @memcpy(new_result[0..f.start], result[0..f.start]);
-            @memcpy(new_result[f.start..][0..f.replacement.len], f.replacement);
-            if (f.end < result.len) {
-                @memcpy(new_result[f.start + f.replacement.len ..], result[f.end..]);
-            }
-            alloc.free(result);
-            result = new_result;
+            total_len = total_len - (f.end - f.start) + f.replacement.len;
         }
 
-        result_owned = false;
+        var result = try alloc.alloc(u8, total_len);
+        var dst: usize = 0;
+        var src: usize = 0;
+
+        for (fixes.items) |f| {
+            const before_len = f.start - src;
+            @memcpy(result[dst..][0..before_len], source[src..][0..before_len]);
+            dst += before_len;
+            @memcpy(result[dst..][0..f.replacement.len], f.replacement);
+            dst += f.replacement.len;
+            src = f.end;
+        }
+        if (src < source.len) {
+            @memcpy(result[dst..], source[src..]);
+        }
+
         fixed_source = result;
 
         for (fixes.items) |f| alloc.free(f.replacement);
@@ -395,7 +442,7 @@ fn parseSeverity(s: []const u8) ?Severity {
 }
 
 pub fn parseConfig(source: []const u8, alloc: std.mem.Allocator) !Config {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    var arena = std.heap.ArenaAllocator.init(alloc);
     defer arena.deinit();
     const a = arena.allocator();
 
@@ -409,7 +456,7 @@ pub fn parseConfig(source: []const u8, alloc: std.mem.Allocator) !Config {
 }
 
 fn parseJsonConfig(json_str: []const u8, alloc: std.mem.Allocator) !Config {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    var arena = std.heap.ArenaAllocator.init(alloc);
     defer arena.deinit();
     const a = arena.allocator();
 

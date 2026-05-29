@@ -20,6 +20,7 @@ pub const CodegenOptions = struct {
     remove_comments: bool = true,
     comments: []const Comment = &.{},
     cjs_output: bool = false,
+    initial_buffer_capacity: usize = 0,
 };
 
 pub const Codegen = struct {
@@ -61,6 +62,10 @@ pub const Codegen = struct {
             sm.source_root = opts.source_root;
             cg.source_idx = try sm.addSource(opts.source_name, opts.source_content);
             cg.source_map = sm;
+        }
+
+        if (opts.initial_buffer_capacity > 0) {
+            try cg.buf.ensureTotalCapacity(alloc, opts.initial_buffer_capacity);
         }
 
         return cg;

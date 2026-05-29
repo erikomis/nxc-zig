@@ -97,6 +97,20 @@ fn scanNodes(ctx: common.LintContext, rule: common.LintRule, comptime visit: fn 
     }
 }
 
+pub const RuleVisitor = struct {
+    rule: common.LintRule,
+    visit: *const fn (*const Arena, NodeId, *const Node, common.LintContext, common.LintRule) anyerror!void,
+};
+
+pub fn scanAllNodes(ctx: common.LintContext, visitors: []const RuleVisitor) !void {
+    const a = try getArena(ctx);
+    for (a.nodes.items, 0..) |*node, i| {
+        for (visitors) |v| {
+            try v.visit(a, @intCast(i), node, ctx, v.rule);
+        }
+    }
+}
+
 // ── Rule implementations ──
 
 fn runNoDebugger(_: *const Arena, _: NodeId, node: *const Node, ctx: common.LintContext, rule: common.LintRule) !void {
@@ -1431,4 +1445,70 @@ pub fn registerAll(registry: anytype, alloc: std.mem.Allocator) !void {
     for (rules) |rule| {
         try registry.register(alloc, rule);
     }
+}
+
+const Vfn = *const fn (*const Arena, NodeId, *const Node, common.LintContext, common.LintRule) anyerror!void;
+
+const dummy_run = struct {
+    fn call(_: common.LintContext, _: common.LintRule) anyerror!void {}
+}.call;
+
+pub fn buildVisitors() []const RuleVisitor {
+    return &[_]RuleVisitor{
+        .{ .rule = .{ .code = "no-debugger", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoDebugger)) },
+        .{ .rule = .{ .code = "no-alert", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoAlert)) },
+        .{ .rule = .{ .code = "no-eval", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoEval)) },
+        .{ .rule = .{ .code = "no-empty", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoEmpty)) },
+        .{ .rule = .{ .code = "no-compare-neg-zero", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoCompareNegZero)) },
+        .{ .rule = .{ .code = "no-cond-assign", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoCondAssign)) },
+        .{ .rule = .{ .code = "no-constant-condition", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoConstantCondition)) },
+        .{ .rule = .{ .code = "no-control-regex", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoControlRegex)) },
+        .{ .rule = .{ .code = "no-delete-var", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoDeleteVar)) },
+        .{ .rule = .{ .code = "no-dupe-keys", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoDupeKeys)) },
+        .{ .rule = .{ .code = "no-duplicate-case", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoDuplicateCase)) },
+        .{ .rule = .{ .code = "no-empty-pattern", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoEmptyPattern)) },
+        .{ .rule = .{ .code = "no-ex-assign", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoExAssign)) },
+        .{ .rule = .{ .code = "no-extra-boolean-cast", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoExtraBooleanCast)) },
+        .{ .rule = .{ .code = "no-func-assign", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoFuncAssign)) },
+        .{ .rule = .{ .code = "no-global-assign", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoGlobals)) },
+        .{ .rule = .{ .code = "no-new-native-nonconstructor", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoNewNativeNonconstructor)) },
+        .{ .rule = .{ .code = "no-nonoctal-decimal-escape", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoNonoctalDecimalEscape)) },
+        .{ .rule = .{ .code = "no-obj-calls", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoObjCalls)) },
+        .{ .rule = .{ .code = "no-octal", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoOctal)) },
+        .{ .rule = .{ .code = "no-prototype-builtins", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoPrototypeBuiltins)) },
+        .{ .rule = .{ .code = "no-self-assign", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoSelfAssign)) },
+        .{ .rule = .{ .code = "no-sparse-arrays", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoSparseArrays)) },
+        .{ .rule = .{ .code = "no-unsafe-negation", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoUnsafeNegation)) },
+        .{ .rule = .{ .code = "no-unsafe-optional-chaining", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoUnsafeOptionalChaining)) },
+        .{ .rule = .{ .code = "no-useless-catch", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoUselessCatch)) },
+        .{ .rule = .{ .code = "for-direction", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runForDirection)) },
+        .{ .rule = .{ .code = "use-isnan", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runUseIsNaN)) },
+        .{ .rule = .{ .code = "valid-typeof", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runValidTypeof)) },
+        .{ .rule = .{ .code = "no-const-assign", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoConstAssign)) },
+        .{ .rule = .{ .code = "no-class-assign", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoClassAssign)) },
+        .{ .rule = .{ .code = "no-dupe-args", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoDupeArgs)) },
+        .{ .rule = .{ .code = "no-dupe-class-members", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoDupeClassMembers)) },
+        .{ .rule = .{ .code = "no-dupe-else-if", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoDupeElseIf)) },
+        .{ .rule = .{ .code = "no-case-declarations", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoCaseDeclarations)) },
+        .{ .rule = .{ .code = "no-async-promise-executor", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoAsyncPromiseExecutor)) },
+        .{ .rule = .{ .code = "no-constant-binary-expression", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoConstantBinaryExpression)) },
+        .{ .rule = .{ .code = "no-import-assign", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoImportAssign)) },
+        .{ .rule = .{ .code = "no-shadow-restricted-names", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoShadowRestrictedNames)) },
+        .{ .rule = .{ .code = "no-unreachable", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoUnreachable)) },
+        .{ .rule = .{ .code = "no-unsafe-finally", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoUnsafeFinally)) },
+        .{ .rule = .{ .code = "no-unused-vars", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoUnusedVars)) },
+        .{ .rule = .{ .code = "no-undef", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoUndef)) },
+        .{ .rule = .{ .code = "require-yield", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runRequireYield)) },
+        .{ .rule = .{ .code = "no-fallthrough", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoFallthrough)) },
+        .{ .rule = .{ .code = "no-empty-static-block", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoEmptyStaticBlock)) },
+        .{ .rule = .{ .code = "no-self-compare", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoSelfCompare)) },
+        .{ .rule = .{ .code = "no-template-curly-in-string", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoTemplateCurlyInString)) },
+        .{ .rule = .{ .code = "no-await-in-loop", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoAwaitInLoop)) },
+        .{ .rule = .{ .code = "no-promise-executor-return", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoPromiseExecutorReturn)) },
+        .{ .rule = .{ .code = "no-inner-declarations", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoInnerDeclarations)) },
+        .{ .rule = .{ .code = "preserve-caught-error", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runPreserveCaughtError)) },
+        .{ .rule = .{ .code = "no-var", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoVar)) },
+        .{ .rule = .{ .code = "prefer-template", .severity = .warn, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runPreferTemplate)) },
+        .{ .rule = .{ .code = "no-constructor-return", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoConstructorReturn)) },
+    };
 }

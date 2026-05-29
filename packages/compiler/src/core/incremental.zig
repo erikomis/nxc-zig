@@ -2,15 +2,11 @@ const std = @import("std");
 const cache = @import("cache");
 const compiler = @import("compiler");
 const config = @import("config");
-const diagnostics = @import("diagnostics");
-const parser_mod = @import("parser");
-const ast_mod = @import("ast");
 
 const CacheEntry = cache.CacheEntry;
 const CacheStore = cache.CacheStore;
 const Config = config.Config;
 const CompileResult = compiler.CompileResult;
-const Diagnostic = diagnostics.Diagnostic;
 
 pub const IncrementalCompiler = struct {
     cache: CacheStore,
@@ -42,23 +38,24 @@ pub const IncrementalCompiler = struct {
         if (self.cache.get(path)) |entry| {
             if (entry.source_hash == source_hash) {
                 const result = loadCachedOutput(path, io, alloc) catch {
-                    return self.compileAndCache(path, source_hash, io, alloc);
+                    return self.compileAndCache(path, source, source_hash, io, alloc);
                 };
                 return result;
             }
         }
 
-        return self.compileAndCache(path, source_hash, io, alloc);
+        return self.compileAndCache(path, source, source_hash, io, alloc);
     }
 
     fn compileAndCache(
         self: *IncrementalCompiler,
         path: []const u8,
+        source: []const u8,
         source_hash: u64,
         io: std.Io,
         alloc: std.mem.Allocator,
     ) !CompileResult {
-        const result = try compiler.compileFile(path, self.config, io, alloc);
+        const result = try compiler.compile(source, path, self.config, io, alloc);
 
         var out_hasher = std.hash.Wyhash.init(0);
         out_hasher.update(result.code);
@@ -66,7 +63,7 @@ pub const IncrementalCompiler = struct {
         if (result.declarations) |d| out_hasher.update(d);
         const output_hash = out_hasher.final();
 
-        const deps = try extractDeps(path, io, alloc);
+        const deps = try extractDeps(source, path, io, alloc);
         defer {
             for (deps) |d| alloc.free(d);
             alloc.free(deps);
@@ -101,16 +98,12 @@ pub const IncrementalCompiler = struct {
     pub fn isStaleCheck(self: *IncrementalCompiler, path: []const u8, current_hash: u64, io: std.Io, alloc: std.mem.Allocator) bool {
         if (self.cache.isStale(path, current_hash)) return true;
         const entry = self.cache.get(path) orelse return true;
-        for (entry.dep_hashes, 0..) |cached_hash, i| {
-            var it = std.mem.splitScalar(u8, entry.deps, ',');
-            var j: usize = 0;
-            while (it.next()) |dep_path| : (j += 1) {
-                if (j != i) continue;
-                if (dep_path.len == 0) continue;
-                const current_dep_hash = cache.hashFile(dep_path, io, alloc) catch return true;
-                if (current_dep_hash != cached_hash) return true;
-                break;
-            }
+        var it = std.mem.splitScalar(u8, entry.deps, ',');
+        for (entry.dep_hashes) |cached_hash| {
+            const dep_path = it.next() orelse return true;
+            if (dep_path.len == 0) continue;
+            const current_dep_hash = cache.hashFile(dep_path, io, alloc) catch return true;
+            if (current_dep_hash != cached_hash) return true;
         }
         return false;
     }
@@ -172,67 +165,61 @@ fn jsPathFromSourcePath(path: []const u8, alloc: std.mem.Allocator) ![]u8 {
     return std.fmt.allocPrint(alloc, "{s}.js", .{path});
 }
 
-fn extractDeps(path: []const u8, io: std.Io, alloc: std.mem.Allocator) ![][]const u8 {
-    const source = std.Io.Dir.cwd().readFileAlloc(io, path, alloc, std.Io.Limit.limited(10 * 1024 * 1024)) catch return &.{};
-    defer alloc.free(source);
-
-    var arena_backing = std.heap.ArenaAllocator.init(alloc);
-    defer arena_backing.deinit();
-    const a = arena_backing.allocator();
-
-    var diags = diagnostics.DiagnosticList{};
-    var node_arena = ast_mod.Arena.init(a);
-    var p = parser_mod.Parser.init(source, path, &node_arena, a, &diags, .{ .check = false });
-
-    const program_id = p.parseProgram() catch return &.{};
-    _ = program_id;
-
+fn extractDeps(source: []const u8, path: []const u8, io: std.Io, alloc: std.mem.Allocator) ![][]const u8 {
     var result = std.ArrayListUnmanaged([]const u8).empty;
     const dir = std.fs.path.dirname(path) orelse ".";
-
-    for (node_arena.nodes.items) |node| {
-        if (node == .import_decl) {
-            const src = node.import_decl.source;
-            const src_node = node_arena.get(src);
-            if (src_node.* == .str_lit) {
-                const import_path = src_node.str_lit.value;
-                if (!std.mem.startsWith(u8, import_path, ".") and !std.mem.startsWith(u8, import_path, "/")) continue;
-                const resolved = std.fs.path.join(alloc, &.{ dir, import_path }) catch continue;
-                const with_ext = try resolveTsExt(resolved, io, alloc);
-                try result.append(alloc, with_ext);
+    var i: usize = 0;
+    while (i < source.len) {
+        if (scanImportExportPath(source, &i)) |import_path| {
+            if (!std.mem.startsWith(u8, import_path, ".") and !std.mem.startsWith(u8, import_path, "/")) {
+                continue;
             }
-        }
-        if (node == .export_decl) {
-            const exp = node.export_decl;
-            switch (exp.kind) {
-                .named => |n| {
-                    if (n.source) |src_id| {
-                        const src_node = node_arena.get(src_id);
-                        if (src_node.* == .str_lit) {
-                            const exp_path = src_node.str_lit.value;
-                            if (!std.mem.startsWith(u8, exp_path, ".") and !std.mem.startsWith(u8, exp_path, "/")) continue;
-                            const resolved = std.fs.path.join(alloc, &.{ dir, exp_path }) catch continue;
-                            const with_ext = try resolveTsExt(resolved, io, alloc);
-                            try result.append(alloc, with_ext);
-                        }
-                    }
-                },
-                .all => |all_exp| {
-                    const src_node = node_arena.get(all_exp.source);
-                    if (src_node.* == .str_lit) {
-                        const exp_path = src_node.str_lit.value;
-                        if (!std.mem.startsWith(u8, exp_path, ".") and !std.mem.startsWith(u8, exp_path, "/")) continue;
-                        const resolved = std.fs.path.join(alloc, &.{ dir, exp_path }) catch continue;
-                        const with_ext = try resolveTsExt(resolved, io, alloc);
-                        try result.append(alloc, with_ext);
-                    }
-                },
-                else => {},
-            }
+            const resolved = std.fs.path.join(alloc, &.{ dir, import_path }) catch continue;
+            const with_ext = resolveTsExt(resolved, io, alloc) catch {
+                alloc.free(resolved);
+                continue;
+            };
+            result.append(alloc, with_ext) catch {
+                alloc.free(with_ext);
+            };
         }
     }
-
     return result.toOwnedSlice(alloc);
+}
+
+fn scanImportExportPath(source: []const u8, i_ptr: *usize) ?[]const u8 {
+    var i = i_ptr.*;
+    while (i < source.len) : (i += 1) {
+        if (source[i] == '/' and i + 1 < source.len and source[i + 1] == '/') {
+            while (i < source.len and source[i] != '\n') i += 1;
+            continue;
+        }
+        if (source[i] == '/' and i + 1 < source.len and source[i + 1] == '*') {
+            i += 2;
+            while (i + 1 < source.len) : (i += 1) {
+                if (source[i] == '*' and source[i + 1] == '/') {
+                    i += 2;
+                    break;
+                }
+            }
+            continue;
+        }
+        if (source[i] == '\'' or source[i] == '"') {
+            const quote = source[i];
+            i += 1;
+            const start = i;
+            while (i < source.len and source[i] != quote) {
+                if (source[i] == '\\') i += 1;
+                i += 1;
+            }
+            const end = i;
+            i += 1;
+            i_ptr.* = i;
+            return source[start..end];
+        }
+    }
+    i_ptr.* = i;
+    return null;
 }
 
 fn resolveTsExt(path: []const u8, io: std.Io, alloc: std.mem.Allocator) ![]u8 {

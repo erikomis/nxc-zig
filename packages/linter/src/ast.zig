@@ -848,14 +848,16 @@ pub const NodePool = struct {
     slabs: std.ArrayListUnmanaged([]Node),
     slab_capacity: u32,
     alloc: std.mem.Allocator,
+    current_slab_size: u32,
 
-    const SLAB_SIZE: u32 = 4096;
+    const INITIAL_SLAB_SIZE: u32 = 256;
 
     pub fn init(alloc: std.mem.Allocator) NodePool {
         return .{
             .slabs = .empty,
             .slab_capacity = 0,
             .alloc = alloc,
+            .current_slab_size = INITIAL_SLAB_SIZE,
         };
     }
 
@@ -867,10 +869,14 @@ pub const NodePool = struct {
     }
 
     pub fn allocNode(self: *NodePool) !*Node {
-        if (self.slabs.items.len == 0 or self.slab_capacity >= SLAB_SIZE) {
-            const slab = try self.alloc.alloc(Node, SLAB_SIZE);
+        if (self.slabs.items.len == 0 or self.slab_capacity >= self.current_slab_size) {
+            const slab = try self.alloc.alloc(Node, self.current_slab_size);
             try self.slabs.append(self.alloc, slab);
             self.slab_capacity = 0;
+            if (self.current_slab_size < 4096) {
+                self.current_slab_size *= 2;
+                if (self.current_slab_size > 4096) self.current_slab_size = 4096;
+            }
         }
         const slab = self.slabs.items[self.slabs.items.len - 1];
         const node = &slab[self.slab_capacity];

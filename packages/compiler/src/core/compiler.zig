@@ -442,6 +442,7 @@ pub fn compile(
         },
         .remove_comments = cfg.remove_comments,
         .comments = p.comments.items,
+        .initial_buffer_capacity = source.len,
     });
     try cg.gen(program_id);
     const code = try cg.finish();
