@@ -99,7 +99,7 @@ pub fn main(init: std.process.Init) !void {
     }
 
     if (args_slice.len > 1 and std.mem.eql(u8, args_slice[1], "doctor")) {
-        try runDoctorCommand(io);
+        try runDoctorCommand(io, alloc);
         return;
     }
 
@@ -722,8 +722,7 @@ fn runInitCommand(io: Io, alloc: std.mem.Allocator) !void {
     std.debug.print("\nDone. Run 'nxc compile src' to build.\n", .{});
 }
 
-fn runDoctorCommand(io: Io) !void {
-    _ = alloc;
+fn runDoctorCommand(io: Io, alloc: std.mem.Allocator) !void {
     const green = "\x1b[32m";
     const yellow = "\x1b[33m";
     const red = "\x1b[31m";
