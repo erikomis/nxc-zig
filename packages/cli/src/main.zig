@@ -413,6 +413,47 @@ test "applyTsConfigOverrides rejects unsupported tsconfig target" {
     try std.testing.expectError(error.UnsupportedTsTarget, applyTsConfigOverrides(&cfg, ts));
 }
 
+test "parseSupportedTarget accepts es2015" {
+    try std.testing.expectEqual(config.Target.es2015, try config.parseSupportedTarget("ES2015"));
+}
+
+test "parseSupportedTarget accepts es6 as es2015" {
+    try std.testing.expectEqual(config.Target.es2015, try config.parseSupportedTarget("ES6"));
+}
+
+test "parseSupportedTarget accepts esnext" {
+    try std.testing.expectEqual(config.Target.esnext, try config.parseSupportedTarget("ESNext"));
+}
+
+test "parseSupportedTarget rejects unsupported" {
+    try std.testing.expectError(error.UnsupportedTsTarget, config.parseSupportedTarget("ES5"));
+}
+
+test "applyTsConfigOverrides maps es2015 target" {
+    var cfg = compiler.Config{};
+    const ts = config.TsConfig{
+        .compiler_options = .{ .target = "ES2015" },
+    };
+    try applyTsConfigOverrides(&cfg, ts);
+    try std.testing.expectEqual(config.Target.es2015, cfg.target);
+}
+
+test "applyTsConfigOverrides minify is false by default" {
+    var cfg = compiler.Config{};
+    try std.testing.expectEqual(false, cfg.minify);
+}
+
+test "applyTsConfigOverrides minify can be set true" {
+    var cfg = compiler.Config{ .minify = true };
+    try std.testing.expectEqual(true, cfg.minify);
+}
+
+test "applyTsConfigOverrides module target defaults" {
+    var cfg = compiler.Config{};
+    const defaults = compiler.Config{};
+    try std.testing.expectEqual(defaults.module.target, cfg.module.target);
+}
+
 fn printPathError(action: []const u8, path: []const u8, err: anyerror) void {
     switch (err) {
         error.IsDir => std.debug.print("error: failed to {s} '{s}': expected a file path, but received a directory\n", .{ action, path }),
