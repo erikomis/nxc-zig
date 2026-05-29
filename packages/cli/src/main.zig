@@ -31,6 +31,7 @@ const usage =
     \\  --no-ts                 Disable TypeScript stripping
     \\  --minify                Minify output
     \\  --allow-js              Allow JavaScript files
+    \\  --verbose               Verbose output
     \\  --config   <path>       Config file (default: tsconfig.json)
     \\  --watch                 Watch mode (poll-based)
     \\  -h, --help              Show help
@@ -72,6 +73,7 @@ pub fn main(init: std.process.Init) !void {
     var config_path: ?[]const u8 = null;
     var watch = false;
     var delete_out_dir = false;
+    var verbose = false;
     var i: usize = if (args_slice.len > 1 and std.mem.eql(u8, args_slice[1], "compile")) 2 else 1;
     while (i < args_slice.len) : (i += 1) {
         const arg: []const u8 = args_slice[i];
@@ -111,6 +113,8 @@ pub fn main(init: std.process.Init) !void {
             cfg.minify = true;
         } else if (std.mem.eql(u8, arg, "--allow-js")) {
             cfg.allow_js = true;
+        } else if (std.mem.eql(u8, arg, "--verbose")) {
+            verbose = true;
         } else if (std.mem.eql(u8, arg, "--config")) {
             i += 1;
             if (i >= args_slice.len) fatal("--config requires value");
@@ -199,23 +203,40 @@ pub fn main(init: std.process.Init) !void {
         return;
     }
 
+    const start_time = std.time.milliTimestamp();
+    var compiled: usize = 0;
+    var errors: usize = 0;
+
     for (input_paths.items) |path| {
+        if (verbose) std.debug.print("compiling {s}...\n", .{path});
         switch (cli.classifyInputPath(path, io)) {
             .directory => {
                 try cli.compileInput(path, null, out_dir orelse "dist", cfg, io, alloc);
+                compiled += 1;
             },
             .file => {
                 cli.compileInput(path, out_file, out_dir, cfg, io, alloc) catch |err| {
                     printPathError("compile", path, err);
-                    return err;
+                    errors += 1;
+                    continue;
                 };
+                compiled += 1;
             },
             .missing => {
                 printPathError("compile", path, error.FileNotFound);
-                return error.FileNotFound;
+                errors += 1;
+                continue;
             },
         }
     }
+
+    const elapsed_ms = std.time.milliTimestamp() - start_time;
+    if (compiled > 0) {
+        std.debug.print("Compiled {d} file(s) in {d}ms", .{ compiled, elapsed_ms });
+        if (errors > 0) std.debug.print(" ({d} errors)", .{errors});
+        std.debug.print("\n", .{});
+    }
+    if (errors > 0) return error.CompileFailed;
 }
 
 fn runLintCommand(args: []const []const u8, io: Io, alloc: std.mem.Allocator) !void {
