@@ -19,6 +19,7 @@ const usage =
     \\  --no-ts                 Disable TypeScript stripping
     \\  --minify                Minify output
     \\  --allow-js              Allow JavaScript files
+    \\  --verbose               Verbose output
     \\  --config   <path>       Config file (default: tsconfig.json)
     \\  -h, --help              Show help
     \\  --version               Show version
@@ -38,6 +39,7 @@ pub fn main(init: std.process.Init) !void {
     var out_dir: ?[]const u8 = "dist";
     var config_path: ?[]const u8 = null;
     var delete_out_dir = false;
+    var verbose = false;
 
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
@@ -71,6 +73,8 @@ pub fn main(init: std.process.Init) !void {
             cfg.minify = true;
         } else if (std.mem.eql(u8, arg, "--allow-js")) {
             cfg.allow_js = true;
+        } else if (std.mem.eql(u8, arg, "--verbose")) {
+            verbose = true;
         } else if (std.mem.eql(u8, arg, "--config")) {
             i += 1;
             if (i >= args.len) fatal("--config requires value");
@@ -136,7 +140,26 @@ pub fn main(init: std.process.Init) !void {
         };
     }
 
-    for (input_paths.items) |path| try cli.compilePath(path, .{ .out_file = out_file, .out_dir = out_dir, .config = cfg }, io, alloc);
+    const start_time = std.Io.Timestamp.now(io, .awake).nanoseconds;
+    var compiled: usize = 0;
+    var errors: usize = 0;
+
+    for (input_paths.items) |path| {
+        if (verbose) std.debug.print("compiling {s}...\n", .{path});
+        cli.compilePath(path, .{ .out_file = out_file, .out_dir = out_dir, .config = cfg }, io, alloc) catch |err| {
+            std.debug.print("error: failed to compile '{s}': {}\n", .{ path, err });
+            errors += 1;
+            continue;
+        };
+        compiled += 1;
+    }
+
+    const elapsed = @as(f64, @floatFromInt(std.Io.Timestamp.now(io, .awake).nanoseconds - start_time)) / 1_000_000_000.0;
+    if (compiled > 0) {
+        std.debug.print("Compiled {d} file(s) in {d:.2}s", .{ compiled, elapsed });
+        if (errors > 0) std.debug.print(" ({d} errors)", .{errors});
+        std.debug.print("\n", .{});
+    }
 }
 
 fn fatal(msg: []const u8) noreturn {
