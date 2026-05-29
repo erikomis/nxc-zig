@@ -266,7 +266,18 @@ fn printDiagnostic(diag: linter.Diagnostic) void {
         .warn => "warning",
         .info => "info",
     };
-    std.debug.print("{s}:{d}:{d}: {s} {s}: {s}\n", .{ diag.filename, diag.range.start.line, diag.range.start.column, sev, diag.rule_code, diag.message });
+    const color_code = switch (diag.severity) {
+        .err => "\x1b[31m",
+        .warn => "\x1b[33m",
+        .info => "\x1b[36m",
+        .off => "",
+    };
+    const reset = "\x1b[0m";
+    std.debug.print("{s}{s}{s}: {s}{s}:{d}:{d}{s}: {s}\n", .{
+        color_code, sev, reset,
+        reset, diag.filename, diag.range.start.line, diag.range.start.column, reset,
+        diag.message,
+    });
 }
 
 fn printDiagnosticJson(diag: linter.Diagnostic) void {

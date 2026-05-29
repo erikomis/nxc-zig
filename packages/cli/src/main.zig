@@ -16,7 +16,7 @@ const usage =
     \\Usage:
     \\  nxc compile [options] <file|dir> [file|dir ...]
     \\  nxc lint <file> [file ...]
-    \\  nxc format [--write] [--out-file <path>] <file>
+    \\  nxc format [--write] [--check] [--out-file <path>] <file>
     \\  nxc [options] <file|dir> [file|dir ...]
     \\
     \\Options:
@@ -277,6 +277,7 @@ fn runLintCommand(args: []const []const u8, io: Io, alloc: std.mem.Allocator) !v
 
 fn runFormatCommand(args: []const []const u8, io: Io, alloc: std.mem.Allocator) !void {
     var write = false;
+    var check = false;
     var out_file: ?[]const u8 = null;
     var input: ?[]const u8 = null;
     var i: usize = 0;
@@ -284,6 +285,8 @@ fn runFormatCommand(args: []const []const u8, io: Io, alloc: std.mem.Allocator) 
         const arg = args[i];
         if (std.mem.eql(u8, arg, "--write")) {
             write = true;
+        } else if (std.mem.eql(u8, arg, "--check")) {
+            check = true;
         } else if (std.mem.eql(u8, arg, "--out-file")) {
             i += 1;
             if (i >= args.len) fatal("--out-file requires value");
@@ -300,6 +303,20 @@ fn runFormatCommand(args: []const []const u8, io: Io, alloc: std.mem.Allocator) 
         try Io.File.stdout().writeStreamingAll(io, usage);
         return;
     };
+    if (check) {
+        const source = common.readFileAlloc(path, io, alloc) catch |err| {
+            std.debug.print("error: failed to read '{s}': {}\n", .{ path, err });
+            std.process.exit(1);
+        };
+        defer alloc.free(source);
+        const formatted = try linter.format(source, common.FormatterOptions{}, alloc);
+        defer alloc.free(formatted);
+        if (!std.mem.eql(u8, source, formatted)) {
+            std.debug.print("{s}\n", .{path});
+            std.process.exit(1);
+        }
+        return;
+    }
     const formatted = try cli.formatPath(path, .{ .out_file = out_file, .write = write, .options = common.FormatterOptions{} }, io, alloc);
     defer alloc.free(formatted);
     if (!write and out_file == null) try Io.File.stdout().writeStreamingAll(io, formatted);
@@ -311,13 +328,17 @@ fn printLintDiagnostic(diag: linter.Diagnostic) void {
         .warn => "warning",
         .info => "info",
     };
-    std.debug.print("{s}:{d}:{d}: {s} {s}: {s}\n", .{
-        diag.filename,
-        diag.range.start.line,
-        diag.range.start.column,
-        sev,
-        diag.rule_code,
-        diag.message,
+    const color_code = switch (diag.severity) {
+        .err => "\x1b[31m",
+        .warn => "\x1b[33m",
+        .info => "\x1b[36m",
+        else => "",
+    };
+    const reset = "\x1b[0m";
+    std.debug.print("{s}{s}{s}: {s}{s}:{d}:{d}{s}: {s} {s}\n", .{
+        color_code, sev, reset,
+        reset, diag.filename, diag.range.start.line, diag.range.start.column, reset,
+        diag.rule_code, diag.message,
     });
 }
 
