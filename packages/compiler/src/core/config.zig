@@ -51,6 +51,7 @@ pub const Config = struct {
     remove_comments: bool = true,
     minify: bool = false,
 <<<<<<< HEAD
+<<<<<<< HEAD
     inline_source_map: bool = false,
     inline_sources: bool = false,
     declaration_dir: ?[]const u8 = null,
@@ -59,6 +60,11 @@ pub const Config = struct {
     allow_js: bool = false,
 =======
 >>>>>>> 6e4d7f2 (feat(cli): adicionar suporte à opção --minify)
+=======
+    inline_source_map: bool = false,
+    inline_sources: bool = false,
+    declaration_dir: ?[]const u8 = null,
+>>>>>>> 05807e5 (feat(compiler): adicionar suporte a opções de configuração para mapas de origem)
     paths: []const PathAlias = &.{},
 };
 
@@ -289,6 +295,9 @@ pub fn applyCompilerOptions(opts: TsCompilerOptions, cfg: *Config) !void {
     if (opts.base_url) |bu| cfg.*.base_url = bu;
     if (opts.strict) |strict| cfg.*.module.strict = strict;
     if (opts.remove_comments) |rc| cfg.*.remove_comments = rc;
+    if (opts.inline_source_map) |v| cfg.*.inline_source_map = v;
+    if (opts.inline_sources) |v| cfg.*.inline_sources = v;
+    if (opts.declaration_dir) |d| cfg.*.declaration_dir = d;
     if (opts.module) |m| {
         if (std.ascii.eqlIgnoreCase(m, "commonjs") or std.ascii.eqlIgnoreCase(m, "cjs")) {
             cfg.*.module.target = .cjs;
@@ -324,6 +333,9 @@ fn mergeOpts(into: *TsCompilerOptions, base: TsCompilerOptions) void {
     if (base.inline_sources != null and into.inline_sources == null) into.inline_sources = base.inline_sources;
     if (base.emit_declaration_only != null and into.emit_declaration_only == null) into.emit_declaration_only = base.emit_declaration_only;
     if (base.module != null and into.module == null) into.module = base.module;
+    if (base.inline_source_map != null and into.inline_source_map == null) into.inline_source_map = base.inline_source_map;
+    if (base.inline_sources != null and into.inline_sources == null) into.inline_sources = base.inline_sources;
+    if (base.declaration_dir != null and into.declaration_dir == null) into.declaration_dir = base.declaration_dir;
 }
 
 fn parsePaths(obj: std.json.ObjectMap, alloc: std.mem.Allocator) ![]PathAlias {
