@@ -430,10 +430,7 @@ pub fn compile(
 
     var cg = try codegen.Codegen.init(&node_arena, a, .{
         .pretty = !cfg.minify,
-<<<<<<< HEAD
         .cjs_output = cfg.module.target == .cjs,
-=======
->>>>>>> 6e4d7f2 (feat(cli): adicionar suporte à opção --minify)
         .source_map = cfg.source_maps,
         .source_name = filename,
         .source_root = source_root,

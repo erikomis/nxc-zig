@@ -244,6 +244,10 @@ pub fn compileSingle(src_file: []const u8, src_root: []const u8, out_file: ?[]co
 
     Diag.printDiagnostics(result.diagnostics);
 
+    if (cfg.no_emit) return;
+
+    const emit_js = !cfg.emit_declaration_only;
+
     if (out_file) |of| {
         if (std.fs.path.dirname(of)) |dir| {
             makeDirAll(dir, io) catch |err| {
@@ -251,21 +255,23 @@ pub fn compileSingle(src_file: []const u8, src_root: []const u8, out_file: ?[]co
             };
         }
 
-        if (result.map) |map| {
-            if (cfg.inline_source_map) {
-                const code_with_comment = try appendInlineSourceMapComment(result.code, map, alloc);
-                defer alloc.free(code_with_comment);
-                try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = of, .data = code_with_comment });
+        if (emit_js) {
+            if (result.map) |map| {
+                if (cfg.inline_source_map) {
+                    const code_with_comment = try appendInlineSourceMapComment(result.code, map, alloc);
+                    defer alloc.free(code_with_comment);
+                    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = of, .data = code_with_comment });
+                } else {
+                    const map_path = try buildMapPath(of, alloc);
+                    defer alloc.free(map_path);
+                    const code_with_comment = try appendSourceMapComment(result.code, of, alloc);
+                    defer alloc.free(code_with_comment);
+                    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = of, .data = code_with_comment });
+                    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = map_path, .data = map });
+                }
             } else {
-                const map_path = try buildMapPath(of, alloc);
-                defer alloc.free(map_path);
-                const code_with_comment = try appendSourceMapComment(result.code, of, alloc);
-                defer alloc.free(code_with_comment);
-                try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = of, .data = code_with_comment });
-                try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = map_path, .data = map });
+                try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = of, .data = result.code });
             }
-        } else {
-            try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = of, .data = result.code });
         }
 
         if (result.declarations) |dts| {
@@ -291,21 +297,23 @@ pub fn compileSingle(src_file: []const u8, src_root: []const u8, out_file: ?[]co
                 std.debug.print("warning: failed to create dir {s}: {}\n", .{ dir, err });
             };
         }
-        if (result.map) |map| {
-            if (cfg.inline_source_map) {
-                const code_with_comment = try appendInlineSourceMapComment(result.code, map, alloc);
-                defer alloc.free(code_with_comment);
-                try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = out_path, .data = code_with_comment });
+        if (emit_js) {
+            if (result.map) |map| {
+                if (cfg.inline_source_map) {
+                    const code_with_comment = try appendInlineSourceMapComment(result.code, map, alloc);
+                    defer alloc.free(code_with_comment);
+                    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = out_path, .data = code_with_comment });
+                } else {
+                    const map_path = try buildMapPath(out_path, alloc);
+                    defer alloc.free(map_path);
+                    const code_with_comment = try appendSourceMapComment(result.code, out_path, alloc);
+                    defer alloc.free(code_with_comment);
+                    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = out_path, .data = code_with_comment });
+                    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = map_path, .data = map });
+                }
             } else {
-                const map_path = try buildMapPath(out_path, alloc);
-                defer alloc.free(map_path);
-                const code_with_comment = try appendSourceMapComment(result.code, out_path, alloc);
-                defer alloc.free(code_with_comment);
-                try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = out_path, .data = code_with_comment });
-                try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = map_path, .data = map });
+                try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = out_path, .data = result.code });
             }
-        } else {
-            try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = out_path, .data = result.code });
         }
         if (result.declarations) |dts| {
             const dts_path = if (cfg.declaration_dir) |dd| blk: {
@@ -322,7 +330,7 @@ pub fn compileSingle(src_file: []const u8, src_root: []const u8, out_file: ?[]co
 
             try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = dts_path, .data = dts });
         }
-    } else {
+    } else if (emit_js) {
         try std.Io.File.stdout().writeStreamingAll(io, result.code);
     }
 }
