@@ -1127,6 +1127,25 @@ fn collectTemplateParts(arena: *const Arena, node_id: NodeId, source: []const u8
     }
 }
 
+fn runNoConstructorReturn(arena: *const Arena, _: NodeId, node: *const Node, ctx: common.LintContext, rule: common.LintRule) !void {
+    if (node.* != .class_decl) return;
+    for (node.class_decl.body) |m| {
+        if (m.kind == .constructor) {
+            if (m.value) |body_id| {
+                const body = arena.get(body_id);
+                if (body.* == .block) {
+                    for (body.block.body) |stmt_id| {
+                        const stmt = arena.get(stmt_id);
+                        if (stmt.* == .return_stmt and stmt.return_stmt.argument != null) {
+                            try reportNode(ctx, rule, "unexpected return value in constructor", stmt);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 pub fn registerAll(registry: anytype, alloc: std.mem.Allocator) !void {
     const rules = [_]common.LintRule{
         .{ .code = "no-debugger", .severity = .err, .run = struct {
@@ -1394,15 +1413,20 @@ pub fn registerAll(registry: anytype, alloc: std.mem.Allocator) !void {
                 try scanNodes(ctx, rule, runNoVar);
             }
         }.call },
- .{ .code = "prefer-template", .severity = .warn, .run = struct {
-        fn call(ctx: common.LintContext, rule: common.LintRule) anyerror!void {
-            try scanNodes(ctx, rule, runPreferTemplate);
-        }
-    }.call, .fix = struct {
-        fn call(ctx: common.LintContext, rule: common.LintRule) anyerror!void {
-            try scanNodes(ctx, rule, fixPreferTemplate);
-        }
-    }.call },
+        .{ .code = "prefer-template", .severity = .warn, .run = struct {
+            fn call(ctx: common.LintContext, rule: common.LintRule) anyerror!void {
+                try scanNodes(ctx, rule, runPreferTemplate);
+            }
+        }.call, .fix = struct {
+            fn call(ctx: common.LintContext, rule: common.LintRule) anyerror!void {
+                try scanNodes(ctx, rule, fixPreferTemplate);
+            }
+        }.call },
+        .{ .code = "no-constructor-return", .severity = .err, .run = struct {
+            fn call(ctx: common.LintContext, rule: common.LintRule) anyerror!void {
+                try scanNodes(ctx, rule, runNoConstructorReturn);
+            }
+        }.call },
     };
     for (rules) |rule| {
         try registry.register(alloc, rule);
