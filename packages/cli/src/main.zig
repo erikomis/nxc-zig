@@ -8,6 +8,8 @@ const common = @import("common");
 pub const ansi = @import("ansi.zig");
 const terminal = @import("terminal.zig");
 
+const version_str = "0.1.0";
+
 const Io = std.Io;
 
 const usage =
@@ -32,6 +34,7 @@ const usage =
     \\  --config   <path>       Config file (default: tsconfig.json)
     \\  --watch                 Watch mode (poll-based)
     \\  -h, --help              Show help
+    \\  --version               Show version
     \\
     \\tsconfig.json keys:
     \\  compilerOptions.paths            Path aliases (e.g. {"#/*": ["./*"]})
@@ -74,6 +77,9 @@ pub fn main(init: std.process.Init) !void {
         const arg: []const u8 = args_slice[i];
         if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
             try Io.File.stdout().writeStreamingAll(io, usage);
+            return;
+        } else if (std.mem.eql(u8, arg, "--version")) {
+            try Io.File.stdout().writeStreamingAll(io, "nxc " ++ version_str ++ "\n");
             return;
         } else if (std.mem.eql(u8, arg, "--out-file")) {
             i += 1;
@@ -218,6 +224,11 @@ fn runLintCommand(args: []const []const u8, io: Io, alloc: std.mem.Allocator) !v
         return;
     }
 
+    if (args.len == 1 and (std.mem.eql(u8, args[0], "--version") or std.mem.eql(u8, args[0], "-v"))) {
+        try Io.File.stdout().writeStreamingAll(io, "nxc-linter " ++ version_str ++ "\n");
+        return;
+    }
+
     var fix = false;
     var verbose = false;
     var paths = std.ArrayListUnmanaged([]const u8).empty;
@@ -282,6 +293,11 @@ fn runLintCommand(args: []const []const u8, io: Io, alloc: std.mem.Allocator) !v
 }
 
 fn runFormatCommand(args: []const []const u8, io: Io, alloc: std.mem.Allocator) !void {
+    if (args.len == 1 and (std.mem.eql(u8, args[0], "--version") or std.mem.eql(u8, args[0], "-v"))) {
+        try Io.File.stdout().writeStreamingAll(io, "nxc-formatter " ++ version_str ++ "\n");
+        return;
+    }
+
     var write = false;
     var check = false;
     var out_file: ?[]const u8 = null;

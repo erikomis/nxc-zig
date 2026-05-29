@@ -18,6 +18,8 @@ const usage =
     \\  nxc-linter [--config <path>] [--fix] [--cache] [--watch] [--json] [--list-rules] [--verbose] [<file|dir> ...]
     \\
     \\If no paths given, lints all source files in the current directory recursively.
+    \\  -h, --help              Show help
+    \\  --version               Show version
     \\
 ;
 
@@ -41,6 +43,9 @@ pub fn main(init: std.process.Init) !void {
         const arg = args[i];
         if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
             try std.Io.File.stdout().writeStreamingAll(io, usage);
+            return;
+        } else if (std.mem.eql(u8, arg, "--version")) {
+            try std.Io.File.stdout().writeStreamingAll(io, "nxc-linter 0.1.0\n");
             return;
         } else if (std.mem.eql(u8, arg, "--config")) {
             i += 1;

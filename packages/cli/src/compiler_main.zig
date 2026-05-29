@@ -21,6 +21,7 @@ const usage =
     \\  --allow-js              Allow JavaScript files
     \\  --config   <path>       Config file (default: tsconfig.json)
     \\  -h, --help              Show help
+    \\  --version               Show version
     \\
 ;
 
@@ -43,6 +44,9 @@ pub fn main(init: std.process.Init) !void {
         const arg = args[i];
         if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
             try std.Io.File.stdout().writeStreamingAll(io, usage);
+            return;
+        } else if (std.mem.eql(u8, arg, "--version")) {
+            try std.Io.File.stdout().writeStreamingAll(io, "nxc-compiler 0.1.0\n");
             return;
         } else if (std.mem.eql(u8, arg, "--out-file")) {
             i += 1;
