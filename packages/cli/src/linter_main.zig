@@ -3,6 +3,7 @@ const std = @import("std");
 const cli = @import("cli");
 const linter = @import("linter");
 const cache = @import("cache");
+const watch = @import("watch");
 
 fn nowMs() i64 {
     var tp: std.os.linux.timespec = undefined;
@@ -14,7 +15,7 @@ const usage =
     \\nxc-linter - lint source files
     \\
     \\Usage:
-    \\  nxc-linter [--config <path>] [--fix] [--cache] [--verbose] [<file|dir> ...]
+    \\  nxc-linter [--config <path>] [--fix] [--cache] [--watch] [--verbose] [<file|dir> ...]
     \\
     \\If no paths given, lints all source files in the current directory recursively.
     \\
@@ -30,6 +31,7 @@ pub fn main(init: std.process.Init) !void {
     var fix = false;
     var verbose = false;
     var enable_cache = false;
+    var enable_watch = false;
     var raw_paths = std.ArrayListUnmanaged([]const u8).empty;
     defer raw_paths.deinit(alloc);
 
@@ -49,6 +51,8 @@ pub fn main(init: std.process.Init) !void {
             verbose = true;
         } else if (std.mem.eql(u8, arg, "--cache")) {
             enable_cache = true;
+        } else if (std.mem.eql(u8, arg, "--watch")) {
+            enable_watch = true;
         } else if (arg.len > 0 and arg[0] != '-') {
             try raw_paths.append(alloc, arg);
         } else {
@@ -65,6 +69,18 @@ pub fn main(init: std.process.Init) !void {
 
     if (paths.len == 0) {
         try std.Io.File.stdout().writeStreamingAll(io, usage);
+        return;
+    }
+
+    if (enable_watch) {
+        var resolved_cfg_copy = readLinterConfig(config_path, io, alloc);
+        defer resolved_cfg_copy.deinit(alloc);
+        const lint_watcher = LintWatcher{
+            .cfg = resolved_cfg_copy,
+            .fix = fix,
+            .config_path = config_path,
+        };
+        try watch.watchFiles(paths, LintWatcher, &lint_watcher, io, alloc);
         return;
     }
 
@@ -243,3 +259,24 @@ fn fatal(msg: []const u8) noreturn {
     std.debug.print("error: {s}\n", .{msg});
     std.process.exit(1);
 }
+
+const LintWatcher = struct {
+    cfg: linter.Config,
+    fix: bool,
+    config_path: ?[]const u8,
+
+    pub fn onChange(self: *const LintWatcher, path: []const u8, io: std.Io, alloc: std.mem.Allocator) !void {
+        const result = cli.lintPath(path, .{
+            .fix = self.fix,
+            .config_path = self.config_path,
+            .config = self.cfg,
+        }, io, alloc) catch |err| {
+            std.debug.print("  error linting {s}: {}\n", .{ path, err });
+            return;
+        };
+        defer result.result.deinit(alloc);
+        for (result.result.diagnostics) |diag| {
+            printDiagnostic(diag);
+        }
+    }
+};

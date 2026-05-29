@@ -3,6 +3,7 @@ const std = @import("std");
 const cli = @import("cli");
 const common = @import("common");
 const linter = @import("linter");
+const watch = @import("watch");
 
 fn nowMs() i64 {
     var tp: std.os.linux.timespec = undefined;
@@ -14,7 +15,7 @@ const usage =
     \\nxc-formatter - format source files
     \\
     \\Usage:
-    \\  nxc-formatter [--write] [--out-file <path>] [--config <path>] [--verbose] [<file|dir> ...]
+    \\  nxc-formatter [--write] [--out-file <path>] [--config <path>] [--watch] [--verbose] [<file|dir> ...]
     \\
     \\If no paths given, formats all source files in the current directory recursively.
     \\
@@ -28,6 +29,7 @@ pub fn main(init: std.process.Init) !void {
 
     var write = false;
     var verbose = false;
+    var enable_watch = false;
     var out_file: ?[]const u8 = null;
     var config_path: ?[]const u8 = null;
     var raw_paths = std.ArrayListUnmanaged([]const u8).empty;
@@ -41,6 +43,8 @@ pub fn main(init: std.process.Init) !void {
             return;
         } else if (std.mem.eql(u8, arg, "--write")) {
             write = true;
+        } else if (std.mem.eql(u8, arg, "--watch")) {
+            enable_watch = true;
         } else if (std.mem.eql(u8, arg, "--verbose")) {
             verbose = true;
         } else if (std.mem.eql(u8, arg, "--out-file")) {
@@ -70,12 +74,18 @@ pub fn main(init: std.process.Init) !void {
 
     const fmt_opts = loadFormatterConfig(config_path, io, alloc);
 
+    if (enable_watch) {
+        const fmt_watcher = FormatWatcher{ .opts = fmt_opts };
+        try watch.watchFiles(paths, FormatWatcher, &fmt_watcher, io, alloc);
+        return;
+    }
+
     if (paths.len == 0) {
         try std.Io.File.stdout().writeStreamingAll(io, usage);
         return;
     }
 
-const start_time = nowMs();
+    const start_time = nowMs();
 var formatted_count: usize = 0;
 var checked_count: usize = 0;
 
@@ -182,3 +192,25 @@ fn fatal(msg: []const u8) noreturn {
     std.debug.print("error: {s}\n", .{msg});
     std.process.exit(1);
 }
+
+const FormatWatcher = struct {
+    opts: common.FormatterOptions,
+
+    pub fn onChange(self: *const FormatWatcher, path: []const u8, io: std.Io, alloc: std.mem.Allocator) !void {
+        const source = common.readFileAlloc(path, io, alloc) catch |err| {
+            std.debug.print("  error reading {s}: {}\n", .{ path, err });
+            return;
+        };
+        defer alloc.free(source);
+        const formatted = linter.format(source, self.opts, alloc) catch |err| {
+            std.debug.print("  error formatting {s}: {}\n", .{ path, err });
+            return;
+        };
+        defer alloc.free(formatted);
+        if (!std.mem.eql(u8, source, formatted)) {
+            std.Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = formatted }) catch |err| {
+                std.debug.print("  error writing {s}: {}\n", .{ path, err });
+            };
+        }
+    }
+};

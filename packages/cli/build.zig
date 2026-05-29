@@ -9,6 +9,7 @@ pub const CompilerModules = struct {
 
 pub const Package = struct {
     cli: *std.Build.Module,
+    watch: *std.Build.Module,
 };
 
 // Standalone: `zig build` from packages/cli/
@@ -104,5 +105,5 @@ pub fn addPackage(
     cli.addImport("common", common);
     cli.addImport("watch", watch);
 
-    return .{ .cli = cli };
+    return .{ .cli = cli, .watch = watch };
 }

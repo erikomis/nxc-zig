@@ -229,6 +229,7 @@ pub fn build(b: *std.Build) void {
     linter_bin.addImport("cli", cli.cli);
     linter_bin.addImport("linter", linter.module);
     linter_bin.addImport("cache", linter_cache_mod);
+    linter_bin.addImport("watch", cli.watch);
 
     const formatter_bin = b.createModule(.{
         .root_source_file = b.path("packages/cli/src/formatter_main.zig"),
@@ -238,6 +239,7 @@ pub fn build(b: *std.Build) void {
     formatter_bin.addImport("cli", cli.cli);
     formatter_bin.addImport("common", common.module);
     formatter_bin.addImport("linter", linter.module);
+    formatter_bin.addImport("watch", cli.watch);
 
     const compiler_exe = b.addExecutable(.{ .name = "nxc-compiler", .root_module = compiler_bin });
     const linter_exe = b.addExecutable(.{ .name = "nxc-linter", .root_module = linter_bin });

@@ -229,6 +229,10 @@ pub fn applyCompilerOptions(opts: TsCompilerOptions, cfg: *Config) !void {
     if (opts.paths.len > 0) cfg.*.paths = opts.paths;
     if (opts.base_url) |bu| cfg.*.base_url = bu;
     if (opts.strict) |strict| cfg.*.module.strict = strict;
+    if (opts.remove_comments) |rc| cfg.*.remove_comments = rc;
+    // outDir, outFile, rootDir, allowJs, checkJs, noEmit, resolveJsonModule,
+    // isolatedModules, declarationDir, inlineSourceMap, inlineSources,
+    // emitDeclarationOnly, module: parsed but consumed by CLI layer.
 }
 
 
