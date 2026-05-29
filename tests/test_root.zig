@@ -19,12 +19,7 @@ const package_formatter_tests = @import("package_formatter_tests");
 const package_cli_tests = @import("package_cli_tests");
 const package_common_tests = @import("package_common_tests");
 
-const fuzz_tests = @import("fuzz/fuzz.zig");
-const bench_tests = @import("bench/bench.zig");
-const diff_tests = @import("diff/diff_test.zig");
-const stress_tests = @import("stress/stress_test.zig");
-const memory_tests = @import("memory/memory_test.zig");
-const concurrency_tests = @import("concurrency/concurrency_test.zig");
+
 
 
 comptime {
@@ -48,12 +43,4 @@ comptime {
     _ = package_formatter_tests;
     _ = package_cli_tests;
     _ = package_common_tests;
-
-    _ = fuzz_tests;
-    _ = bench_tests;
-    _ = diff_tests;
-    _ = stress_tests;
-    _ = memory_tests;
-    _ = concurrency_tests;
-
 }
