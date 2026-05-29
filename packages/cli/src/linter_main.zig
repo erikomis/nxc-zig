@@ -15,7 +15,7 @@ const usage =
     \\nxc-linter - lint source files
     \\
     \\Usage:
-    \\  nxc-linter [--config <path>] [--fix] [--cache] [--watch] [--verbose] [<file|dir> ...]
+    \\  nxc-linter [--config <path>] [--fix] [--cache] [--watch] [--json] [--verbose] [<file|dir> ...]
     \\
     \\If no paths given, lints all source files in the current directory recursively.
     \\
@@ -32,6 +32,7 @@ pub fn main(init: std.process.Init) !void {
     var verbose = false;
     var enable_cache = false;
     var enable_watch = false;
+    var json_output = false;
     var raw_paths = std.ArrayListUnmanaged([]const u8).empty;
     defer raw_paths.deinit(alloc);
 
@@ -53,6 +54,8 @@ pub fn main(init: std.process.Init) !void {
             enable_cache = true;
         } else if (std.mem.eql(u8, arg, "--watch")) {
             enable_watch = true;
+        } else if (std.mem.eql(u8, arg, "--json")) {
+            json_output = true;
         } else if (arg.len > 0 and arg[0] != '-') {
             try raw_paths.append(alloc, arg);
         } else {
@@ -134,7 +137,11 @@ pub fn main(init: std.process.Init) !void {
                 if (verbose) std.debug.print("[cache] hit {s}\n", .{rel});
                 if (c.getCachedDiagnostics(rel)) |diags| {
                     for (diags) |diag| {
-                        printDiagnostic(diag);
+                        if (json_output) {
+                            printDiagnosticJson(diag);
+                        } else {
+                            printDiagnostic(diag);
+                        }
                         if (diag.severity == .err) had_errors = true;
                     }
                 }
@@ -167,7 +174,11 @@ pub fn main(init: std.process.Init) !void {
             if (verbose) std.debug.print("checked {s} {d}ms\n", .{ path, elapsed_ms });
 
             for (lint_result.result.diagnostics) |diag| {
-                printDiagnostic(diag);
+                if (json_output) {
+                    printDiagnosticJson(diag);
+                } else {
+                    printDiagnostic(diag);
+                }
                 if (diag.severity == .err) had_errors = true;
             }
         }
@@ -253,6 +264,26 @@ fn printDiagnostic(diag: linter.Diagnostic) void {
         .info => "info",
     };
     std.debug.print("{s}:{d}:{d}: {s} {s}: {s}\n", .{ diag.filename, diag.range.start.line, diag.range.start.column, sev, diag.rule_code, diag.message });
+}
+
+fn printDiagnosticJson(diag: linter.Diagnostic) void {
+    const sev = switch (diag.severity) {
+        .off => "off",
+        .err => "error",
+        .warn => "warning",
+        .info => "info",
+    };
+    std.debug.print(
+        \\{{"filename":"{s}","line":{d},"column":{d},"severity":"{s}","rule":"{s}","message":"{s}"}}
+        \\
+    , .{
+        diag.filename,
+        diag.range.start.line,
+        diag.range.start.column,
+        sev,
+        diag.rule_code,
+        diag.message,
+    });
 }
 
 fn fatal(msg: []const u8) noreturn {
