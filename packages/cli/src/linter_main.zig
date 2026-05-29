@@ -15,7 +15,7 @@ const usage =
     \\nxc-linter - lint source files
     \\
     \\Usage:
-    \\  nxc-linter [--config <path>] [--fix] [--cache] [--watch] [--json] [--list-rules] [--verbose] [<file|dir> ...]
+    \\  nxc-linter [--config <path>] [--fix] [--cache] [--watch] [--json] [--list-rules] [--rules <a,b,c>] [--verbose] [<file|dir> ...]
     \\
     \\If no paths given, lints all source files in the current directory recursively.
     \\  -h, --help              Show help
@@ -35,6 +35,7 @@ pub fn main(init: std.process.Init) !void {
     var enable_cache = false;
     var enable_watch = false;
     var json_output = false;
+    var rules_filter: ?[]const u8 = null;
     var raw_paths = std.ArrayListUnmanaged([]const u8).empty;
     defer raw_paths.deinit(alloc);
 
@@ -61,6 +62,10 @@ pub fn main(init: std.process.Init) !void {
             enable_watch = true;
         } else if (std.mem.eql(u8, arg, "--json")) {
             json_output = true;
+        } else if (std.mem.eql(u8, arg, "--rules")) {
+            i += 1;
+            if (i >= args.len) fatal("--rules requires value");
+            rules_filter = args[i];
         } else if (std.mem.eql(u8, arg, "--list-rules")) {
             printRuleList(io);
             return;
@@ -97,6 +102,20 @@ pub fn main(init: std.process.Init) !void {
 
     var resolved_cfg = readLinterConfig(config_path, io, alloc);
     defer resolved_cfg.deinit(alloc);
+
+    if (rules_filter) |filter| {
+        // Build a new override list with only the specified rules enabled
+        resolved_cfg.rule_overrides.clearRetainingCapacity();
+        var it = std.mem.splitScalar(u8, filter, ',');
+        while (it.next()) |rule_name| {
+            const trimmed = std.mem.trim(u8, rule_name, " \t");
+            if (trimmed.len == 0) continue;
+            try resolved_cfg.rule_overrides.append(alloc, .{
+                .code = try alloc.dupe(u8, trimmed),
+                .enabled = true,
+    });
+        }
+    }
 
     var cache_instance: ?cache.Cache = null;
     defer {
