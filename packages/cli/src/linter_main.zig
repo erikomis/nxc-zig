@@ -15,7 +15,7 @@ const usage =
     \\nxc-linter - lint source files
     \\
     \\Usage:
-    \\  nxc-linter [--config <path>] [--fix] [--cache] [--watch] [--json] [--verbose] [<file|dir> ...]
+    \\  nxc-linter [--config <path>] [--fix] [--cache] [--watch] [--json] [--list-rules] [--verbose] [<file|dir> ...]
     \\
     \\If no paths given, lints all source files in the current directory recursively.
     \\
@@ -56,6 +56,9 @@ pub fn main(init: std.process.Init) !void {
             enable_watch = true;
         } else if (std.mem.eql(u8, arg, "--json")) {
             json_output = true;
+        } else if (std.mem.eql(u8, arg, "--list-rules")) {
+            printRuleList(io);
+            return;
         } else if (arg.len > 0 and arg[0] != '-') {
             try raw_paths.append(alloc, arg);
         } else {
@@ -289,6 +292,49 @@ fn printDiagnosticJson(diag: linter.Diagnostic) void {
 fn fatal(msg: []const u8) noreturn {
     std.debug.print("error: {s}\n", .{msg});
     std.process.exit(1);
+}
+
+fn printRuleList(io: std.Io) void {
+    const rules = [_]struct { code: []const u8, sev: []const u8, desc: []const u8 }{
+        .{ .code = "no-debugger", .sev = "err", .desc = "disallow debugger statements" },
+        .{ .code = "no-alert", .sev = "err", .desc = "disallow alert, confirm, prompt" },
+        .{ .code = "no-console", .sev = "warn", .desc = "disallow console.log and friends" },
+        .{ .code = "no-eval", .sev = "err", .desc = "disallow eval()" },
+        .{ .code = "no-globals", .sev = "err", .desc = "disallow assignment to global variables" },
+        .{ .code = "no-new-native-nonconstructor", .sev = "err", .desc = "disallow new Symbol/new BigInt" },
+        .{ .code = "no-process-exit", .sev = "err", .desc = "disallow process.exit()" },
+        .{ .code = "no-iterator", .sev = "err", .desc = "disallow __iterator__ property" },
+        .{ .code = "no-restricted-globals", .sev = "err", .desc = "disallow specified global variables" },
+        .{ .code = "no-restricted-properties", .sev = "err", .desc = "disallow specified object properties" },
+        .{ .code = "no-template-curly-in-string", .sev = "err", .desc = "disallow template literal placeholder in strings" },
+        .{ .code = "no-self-compare", .sev = "err", .desc = "disallow comparisons where both sides are the same" },
+        .{ .code = "no-constant-condition", .sev = "err", .desc = "disallow constant expressions in conditions" },
+        .{ .code = "no-constant-binary-expression", .sev = "err", .desc = "disallow expressions that always evaluate to a constant" },
+        .{ .code = "no-empty", .sev = "err", .desc = "disallow empty block statements" },
+        .{ .code = "no-empty-character-class", .sev = "err", .desc = "disallow empty character classes in regex" },
+        .{ .code = "no-extra-semi", .sev = "err", .desc = "disallow unnecessary semicolons" },
+        .{ .code = "no-lone-blocks", .sev = "err", .desc = "disallow unnecessary nested blocks" },
+        .{ .code = "no-unsafe-finally", .sev = "err", .desc = "disallow control flow in finally blocks" },
+        .{ .code = "no-unused-vars", .sev = "warn", .desc = "disallow unused variables" },
+        .{ .code = "no-var", .sev = "err", .desc = "require let or const" },
+        .{ .code = "prefer-const", .sev = "warn", .desc = "require const for variables never reassigned" },
+        .{ .code = "eqeqeq", .sev = "err", .desc = "require === and !==" },
+        .{ .code = "no-dupe-keys", .sev = "err", .desc = "disallow duplicate keys in object literals" },
+        .{ .code = "no-case-declarations", .sev = "err", .desc = "disallow lexical declarations in case blocks" },
+        .{ .code = "no-async-promise-executor", .sev = "err", .desc = "disallow async Promise executor" },
+        .{ .code = "no-inner-declarations", .sev = "err", .desc = "disallow function/var declarations in nested blocks" },
+        .{ .code = "no-await-in-loop", .sev = "err", .desc = "disallow await inside loops" },
+        .{ .code = "no-promise-executor-return", .sev = "err", .desc = "disallow return in Promise executor" },
+        .{ .code = "preserve-caught-error", .sev = "err", .desc = "disallow overwriting caught error" },
+        .{ .code = "prefer-template", .sev = "warn", .desc = "require template literals over string concat" },
+        .{ .code = "no-constructor-return", .sev = "err", .desc = "disallow return value in class constructor" },
+    };
+    _ = io;
+    std.debug.print("{d} rules available:\n\n", .{rules.len});
+    for (rules) |r| {
+        const sev_color = if (std.mem.eql(u8, r.sev, "err")) "error" else "warn";
+        std.debug.print("  {s}  [{s}]  {s}\n", .{ r.code, sev_color, r.desc });
+    }
 }
 
 const LintWatcher = struct {

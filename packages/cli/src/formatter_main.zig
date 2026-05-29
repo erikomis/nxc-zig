@@ -15,7 +15,7 @@ const usage =
     \\nxc-formatter - format source files
     \\
     \\Usage:
-    \\  nxc-formatter [--write] [--out-file <path>] [--config <path>] [--watch] [--verbose] [<file|dir> ...]
+    \\  nxc-formatter [--write] [--check] [--out-file <path>] [--config <path>] [--watch] [--verbose] [<file|dir> ...]
     \\
     \\If no paths given, formats all source files in the current directory recursively.
     \\
@@ -28,6 +28,7 @@ pub fn main(init: std.process.Init) !void {
     defer alloc.free(args);
 
     var write = false;
+    var check = false;
     var verbose = false;
     var enable_watch = false;
     var out_file: ?[]const u8 = null;
@@ -43,6 +44,8 @@ pub fn main(init: std.process.Init) !void {
             return;
         } else if (std.mem.eql(u8, arg, "--write")) {
             write = true;
+        } else if (std.mem.eql(u8, arg, "--check")) {
+            check = true;
         } else if (std.mem.eql(u8, arg, "--watch")) {
             enable_watch = true;
         } else if (std.mem.eql(u8, arg, "--verbose")) {
@@ -109,7 +112,14 @@ defer alloc.free(formatted);
 
 const changed = !std.mem.eql(u8, source, formatted);
 
-if (auto_write and changed) {
+if (check) {
+    if (changed) {
+        std.debug.print("{s}\n", .{path});
+        formatted_count += 1;
+    } else {
+        checked_count += 1;
+    }
+} else if (auto_write and changed) {
 std.Io.Dir.cwd().writeFile(io, .{ .sub_path = out_file orelse path, .data = formatted }) catch |err| {
 std.debug.print("error: failed to write '{s}': {}\n", .{ out_file orelse path, err });
 std.process.exit(1);
@@ -136,7 +146,14 @@ if (verbose) std.debug.print("checked {s} {d}ms\n", .{ path, elapsed_ms });
 }
 
 const total_ms = nowMs() - start_time;
-if (formatted_count > 0) {
+if (check) {
+    if (formatted_count > 0) {
+        std.debug.print("{d} file(s) need formatting\n", .{formatted_count});
+        std.process.exit(1);
+    } else {
+        std.debug.print("All files formatted\n", .{});
+    }
+} else if (formatted_count > 0) {
 std.debug.print("{d} file(s) formatted in {d}ms\n", .{ formatted_count, total_ms });
 } else if (checked_count > 0) {
 std.debug.print("No files changed\n", .{});
