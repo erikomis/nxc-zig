@@ -13,33 +13,57 @@ const version_str = "0.1.0";
 const Io = std.Io;
 
 const usage =
-    \\nxc - ESM-first TypeScript compiler written in Zig
+    \\nxc v0.1.0 — ESM-first TypeScript compiler written in Zig
     \\
     \\Usage:
+    \\  nxc [--help] [--version]
     \\  nxc compile [options] <file|dir> [file|dir ...]
-    \\  nxc lint <file> [file ...]
-    \\  nxc format [--write] [--check] [--out-file <path>] <file>
-    \\  nxc init                  Create default config files
-    \\  nxc [options] <file|dir> [file|dir ...]
+    \\  nxc lint [options] <file> [file ...]
+    \\  nxc format [options] <file>
+    \\  nxc init
     \\
-    \\Options:
-    \\  --out-file <path>       Output file (single file only, default: stdout)
+    \\Commands:
+    \\  compile     Compile TypeScript/JavaScript to JavaScript
+    \\  lint        Lint source files with built-in rules
+    \\  format      Format source files (Prettier-compatible)
+    \\  init        Create default tsconfig.json + nxc.config.js
+    \\
+    \\Compile Options:
+    \\  --out-file <path>       Single output file (default: stdout)
     \\  --out-dir  <dir>        Output directory (default: dist)
-    \\  --delete-out-dir        Delete out-dir before compiling
-    \\  --import-interop node|none     ESM interop strategy (default: node)
+    \\  --delete-out-dir        Delete out-dir before building
+    \\  --import-interop node|none  ESM interop strategy (default: node)
     \\  --jsx      classic|auto JSX runtime
-    \\  --no-ts                 Disable TypeScript stripping
-    \\  --minify                Minify output
-    \\  --allow-js              Allow JavaScript files
+    \\  --no-ts                 Disable TypeScript type stripping
+    \\  --minify                Minify output JavaScript
+    \\  --allow-js              Process .js/.jsx files
     \\  --verbose               Verbose output
-    \\  --config   <path>       Config file (default: tsconfig.json)
+    \\  --config   <path>       Config file (default: auto-detect)
     \\  --watch                 Watch mode (poll-based)
-    \\  -h, --help              Show help
-    \\  --version               Show version
+    \\
+    \\Lint Options:
+    \\  --config <path>         Config file
+    \\  --fix                   Auto-fix issues
+    \\  --cache                 Enable result caching
+    \\  --watch                 Watch mode
+    \\  --json                  JSON output format
+    \\  --list-rules            Show all available rules
+    \\  --verbose               Verbose output
+    \\
+    \\Format Options:
+    \\  --write                 Write output in-place
+    \\  --check                 Check if files are formatted (CI mode)
+    \\  --out-file <path>       Write to specific file
+    \\  --config <path>         Config file
+    \\  --watch                 Watch mode
     \\
     \\tsconfig.json keys:
-    \\  compilerOptions.paths            Path aliases (e.g. {"#/*": ["./*"]})
-    \\  compilerOptions.declaration      Emit .d.ts files when true
+    \\  compilerOptions.target, .jsx, .jsxImportSource, .paths,
+    \\  .baseUrl, .strict, .declaration, .sourceMap, .outDir,
+    \\  .rootDir, .allowJs, .removeComments, .noEmit, .module,
+    \\  .esModuleInterop, .experimentalDecorators, .inlineSourceMap,
+    \\  .inlineSources, .declarationDir, .emitDeclarationOnly,
+    \\  .isolatedModules, .resolveJsonModule
     \\
 ;
 
