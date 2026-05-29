@@ -1,3 +1,6 @@
+// SYNC: Keep in sync with packages/linter/src/ast_formatter.zig
+// Differences: this copy has 10 extra comment lines in formatAst.
+// Any bug fix applied here should be mirrored in the linter copy.
 const std = @import("std");
 const common = @import("common");
 

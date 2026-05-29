@@ -1,3 +1,6 @@
+// SYNC: Keep in sync with packages/linter/src/formatter.zig
+// Differences: linter copy has more robust buildFmtOptsFromRule and extra trailing-comma patterns.
+// Any logic fix applied here should be mirrored in the linter copy.
 const std = @import("std");
 const common = @import("common");
 const ast_formatter = @import("ast_formatter");

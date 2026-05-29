@@ -1,3 +1,7 @@
+// SYNC: Keep in sync with packages/formatter/src/root.zig
+// Differences: this copy has more robust buildFmtOptsFromRule (handles both bool_val + string_val)
+// and extra trailing-comma skip patterns in checkTrailingComma.
+// Any logic fix should be mirrored in the formatter copy.
 const std = @import("std");
 const common = @import("common");
 const ast_formatter = @import("ast_formatter.zig");

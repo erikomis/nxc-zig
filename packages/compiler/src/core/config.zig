@@ -70,6 +70,20 @@ pub const TsCompilerOptions = struct {
     source_maps: ?bool = null,
     declaration: ?bool = null,
     paths: []PathAlias = &.{},
+    out_dir: ?[]const u8 = null,
+    out_file: ?[]const u8 = null,
+    root_dir: ?[]const u8 = null,
+    allow_js: ?bool = null,
+    check_js: ?bool = null,
+    remove_comments: ?bool = null,
+    no_emit: ?bool = null,
+    resolve_json_module: ?bool = null,
+    isolated_modules: ?bool = null,
+    declaration_dir: ?[]const u8 = null,
+    inline_source_map: ?bool = null,
+    inline_sources: ?bool = null,
+    emit_declaration_only: ?bool = null,
+    module: ?[]const u8 = null,
 };
 
 pub const TsConfig = struct {
@@ -141,6 +155,48 @@ fn parseCompilerOptions(obj: std.json.ObjectMap, alloc: std.mem.Allocator) !TsCo
         if (v == .object) {
             co.paths = try parsePaths(v.object, alloc);
         }
+    }
+    if (obj.get("outDir")) |v| {
+        if (v == .string) co.out_dir = try alloc.dupe(u8, v.string);
+    }
+    if (obj.get("outFile")) |v| {
+        if (v == .string) co.out_file = try alloc.dupe(u8, v.string);
+    }
+    if (obj.get("rootDir")) |v| {
+        if (v == .string) co.root_dir = try alloc.dupe(u8, v.string);
+    }
+    if (obj.get("allowJs")) |v| {
+        if (v == .bool) co.allow_js = v.bool;
+    }
+    if (obj.get("checkJs")) |v| {
+        if (v == .bool) co.check_js = v.bool;
+    }
+    if (obj.get("removeComments")) |v| {
+        if (v == .bool) co.remove_comments = v.bool;
+    }
+    if (obj.get("noEmit")) |v| {
+        if (v == .bool) co.no_emit = v.bool;
+    }
+    if (obj.get("resolveJsonModule")) |v| {
+        if (v == .bool) co.resolve_json_module = v.bool;
+    }
+    if (obj.get("isolatedModules")) |v| {
+        if (v == .bool) co.isolated_modules = v.bool;
+    }
+    if (obj.get("declarationDir")) |v| {
+        if (v == .string) co.declaration_dir = try alloc.dupe(u8, v.string);
+    }
+    if (obj.get("inlineSourceMap")) |v| {
+        if (v == .bool) co.inline_source_map = v.bool;
+    }
+    if (obj.get("inlineSources")) |v| {
+        if (v == .bool) co.inline_sources = v.bool;
+    }
+    if (obj.get("emitDeclarationOnly")) |v| {
+        if (v == .bool) co.emit_declaration_only = v.bool;
+    }
+    if (obj.get("module")) |v| {
+        if (v == .string) co.module = try alloc.dupe(u8, v.string);
     }
 
     return co;

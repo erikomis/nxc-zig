@@ -3190,7 +3190,7 @@ pub const Parser = struct {
         line: u32,
         line_start: u32,
         last_kind: ?TokenKind,
-        template_stack: [16]u8,
+        template_stack: [64]u8,
         template_depth: u8,
         brace_depth: u8,
         pending_comments_len: u8,
