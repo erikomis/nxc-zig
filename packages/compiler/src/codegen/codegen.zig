@@ -809,13 +809,43 @@ pub const Codegen = struct {
     }
 
     fn genImport(self: *Codegen, imp: ast.ImportDecl) !void {
-        if (imp.specifiers.len == 0) {
-            try self.w("import ");
-            if (imp.is_deferred) try self.w("defer ");
-            try self.gen(imp.source);
-            if (self.opts.keep_import_attributes and imp.attributes.len > 0)
-                try self.genImportAttributes(imp.attributes);
-            try self.w(";");
+        if (self.opts.cjs_output) {
+            _ = self.arena.get(imp.source).str_lit.value;
+            const has_default = imp.specifiers.len > 0 and imp.specifiers[0].kind == .default;
+            const has_namespace = imp.specifiers.len > 0 and imp.specifiers[0].kind == .namespace;
+            const has_named = imp.specifiers.len > 0 and imp.specifiers[0].kind == .named;
+
+            if (has_default) {
+                try self.w("const ");
+                try self.gen(imp.specifiers[0].local);
+                try self.w(" = __importDefault(require(");
+                try self.gen(imp.source);
+                try self.w("));");
+                try self.nl();
+            }
+            if (has_namespace) {
+                try self.w("const ");
+                try self.gen(imp.specifiers[0].local);
+                try self.w(" = __importStar(require(");
+                try self.gen(imp.source);
+                try self.w("));");
+                try self.nl();
+            }
+            if (has_named) {
+                try self.w("const { ");
+                for (imp.specifiers, 0..) |s, i| {
+                    if (i > 0) try self.w(", ");
+                    if (s.imported) |im| {
+                        try self.gen(im);
+                        try self.w(": ");
+                    }
+                    try self.gen(s.local);
+                }
+                try self.w(" } = require(");
+                try self.gen(imp.source);
+                try self.w(");");
+                try self.nl();
+            }
             return;
         }
 
@@ -866,6 +896,57 @@ pub const Codegen = struct {
     }
 
     fn genExport(self: *Codegen, exp: ast.ExportDecl) !void {
+        if (self.opts.cjs_output) {
+            switch (exp.kind) {
+                .default_expr => |e| {
+                    try self.w("module.exports = ");
+                    try self.gen(e);
+                    try self.w(";");
+                },
+                .default_decl => |d| {
+                    try self.gen(d);
+                    const name = extractDeclName(self.arena, d);
+                    if (name) |n| {
+                        try self.nl();
+                        try self.w("module.exports = ");
+                        try self.w(n);
+                        try self.w(";");
+                    }
+                },
+                .decl => |d| {
+                    const name = extractDeclName(self.arena, d);
+                    try self.gen(d);
+                    if (name) |n| {
+                        try self.nl();
+                        try self.w("exports.");
+                        try self.w(n);
+                        try self.w(" = ");
+                        try self.w(n);
+                        try self.w(";");
+                    }
+                },
+                .named => |n| {
+                    for (n.specifiers) |s| {
+                        const local = self.arena.get(s.local).ident.name;
+                        const exported = self.arena.get(s.exported).ident.name;
+                        try self.w("exports.");
+                        try self.w(exported);
+                        try self.w(" = ");
+                        try self.w(local);
+                        try self.w(";");
+                        try self.nl();
+                    }
+                },
+                .all => |a| {
+                    try self.w("__exportStar(require(");
+                    try self.gen(a.source);
+                    try self.w("), exports);");
+                },
+            }
+            try self.nl();
+            return;
+        }
+
         switch (exp.kind) {
             .decl => |d| {
                 if (self.arena.get(d).* == .ts_namespace) {
@@ -1526,3 +1607,12 @@ pub const Codegen = struct {
         try self.w("undefined");
     }
 };
+
+fn extractDeclName(arena: *const ast.Arena, id: NodeId) ?[]const u8 {
+    return switch (arena.get(id).*) {
+        .fn_decl => |f| if (f.id) |n| arena.get(n).ident.name else null,
+        .class_decl => |c| if (c.id) |n| arena.get(n).ident.name else null,
+        .var_decl => |v| if (v.declarators.len > 0) arena.get(v.declarators[0].id).ident.name else null,
+        else => null,
+    };
+}
