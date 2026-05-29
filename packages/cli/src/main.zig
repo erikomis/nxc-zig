@@ -99,7 +99,7 @@ pub fn main(init: std.process.Init) !void {
     }
 
     if (args_slice.len > 1 and std.mem.eql(u8, args_slice[1], "doctor")) {
-        try runDoctorCommand(io, alloc);
+        try runDoctorCommand(io);
         return;
     }
 
@@ -590,17 +590,17 @@ test "applyTsConfigOverrides maps es2015 target" {
 }
 
 test "applyTsConfigOverrides minify is false by default" {
-    var cfg = compiler.Config{};
+    const cfg = compiler.Config{};
     try std.testing.expectEqual(false, cfg.minify);
 }
 
 test "applyTsConfigOverrides minify can be set true" {
-    var cfg = compiler.Config{ .minify = true };
+    const cfg = compiler.Config{ .minify = true };
     try std.testing.expectEqual(true, cfg.minify);
 }
 
 test "applyTsConfigOverrides module target defaults" {
-    var cfg = compiler.Config{};
+    const cfg = compiler.Config{};
     const defaults = compiler.Config{};
     try std.testing.expectEqual(defaults.module.target, cfg.module.target);
 }
@@ -722,7 +722,7 @@ fn runInitCommand(io: Io, alloc: std.mem.Allocator) !void {
     std.debug.print("\nDone. Run 'nxc compile src' to build.\n", .{});
 }
 
-fn runDoctorCommand(io: Io, alloc: std.mem.Allocator) !void {
+fn runDoctorCommand(io: Io) !void {
     _ = alloc;
     const green = "\x1b[32m";
     const yellow = "\x1b[33m";
