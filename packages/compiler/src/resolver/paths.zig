@@ -25,13 +25,17 @@ pub fn resolveFullPaths(
     const nodes = arena.nodes.items;
     for (0..nodes.len) |i| {
         switch (nodes[i]) {
-            .import_decl => |n| try rewriteSourceFullPath(arena, alloc, io, cfg, n.source),
+            .import_decl => |n| try rewriteSourceFullPath(arena, alloc, io, cfg, n.source, false),
             .export_decl => |n| switch (n.kind) {
-                .named => |e| if (e.source) |s| try rewriteSourceFullPath(arena, alloc, io, cfg, s),
-                .all => |e| try rewriteSourceFullPath(arena, alloc, io, cfg, e.source),
+                // Bare package re-exports (`export ... from "pkg"`) must stay
+                // bare: resolving them to a `../node_modules/...` path would
+                // break Node's package resolution and defeat esModuleInterop,
+                // which rewrites such re-exports to `require(...)` later.
+                .named => |e| if (e.source) |s| try rewriteSourceFullPath(arena, alloc, io, cfg, s, true),
+                .all => |e| try rewriteSourceFullPath(arena, alloc, io, cfg, e.source, true),
                 else => {},
             },
-            .import_call => |n| try rewriteSourceFullPath(arena, alloc, io, cfg, n.source),
+            .import_call => |n| try rewriteSourceFullPath(arena, alloc, io, cfg, n.source, false),
             else => {},
         }
     }
@@ -83,12 +87,17 @@ fn rewriteSourceFullPath(
     io: std.Io,
     cfg: FullPathsConfig,
     source_id: ast.NodeId,
+    skip_bare_packages: bool,
 ) !void {
     const node = arena.getMut(source_id);
     const lit = switch (node.*) {
         .str_lit => |*s| s,
         else => return,
     };
+
+    // Leave bare package specifiers untouched when requested (re-exports):
+    // only relative specifiers get extension/path resolution here.
+    if (skip_bare_packages and isBareSpecifier(lit.value)) return;
 
     const value = try resolveFullPath(lit.value, io, cfg, alloc);
     if (std.mem.eql(u8, value, lit.value)) return;
