@@ -279,12 +279,17 @@ fn lintWithEnv(source: []const u8, filename: []const u8, registry: Registry, env
             }
         }.lessThan);
 
+        // Skip overlapping fixes the same way the write pass below does
+        // (track the previous fix's end, not its start), so the allocated
+        // buffer length matches exactly how many bytes get written. A
+        // mismatch here causes an out-of-bounds write when rules emit
+        // overlapping fixes (e.g. prefer-template on nested concatenation).
         var total_len: usize = source.len;
-        var prev_src: usize = 0;
+        var prev_end: usize = 0;
         for (fixes.items) |f| {
-            if (f.start < prev_src) continue;
+            if (f.start < prev_end) continue;
             total_len = total_len - (f.end - f.start) + f.replacement.len;
-            prev_src = f.start;
+            prev_end = f.end;
         }
 
         var result = try alloc.alloc(u8, total_len);

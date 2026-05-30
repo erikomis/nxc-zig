@@ -903,7 +903,9 @@ pub const Codegen = struct {
             }
             try self.w(" }");
         }
-        try self.w(" from ");
+        // A side-effect import (`import "mod";`) has no specifiers, so it must
+        // not emit a `from` clause — only bound imports do.
+        if (imp.specifiers.len > 0) try self.w(" from ");
         try self.gen(imp.source);
         if (self.opts.keep_import_attributes and imp.attributes.len > 0)
             try self.genImportAttributes(imp.attributes);

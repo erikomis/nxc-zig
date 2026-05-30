@@ -3547,6 +3547,16 @@ test "import attributes: side-effect import kept when flag on" {
     );
 }
 
+test "import: side-effect import emits no from clause" {
+    const out = try compileWithConfig(
+        \\import './polyfill.js' with { type: 'json' };
+    , "test.ts", .{ .parser = .{ .syntax = .typescript }, .keep_import_attributes = true });
+    defer std.testing.allocator.free(out);
+    // A side-effect import has no bindings, so it must not emit a `from` clause.
+    try expectContainsText(out, "import './polyfill.js'");
+    try std.testing.expect(std.mem.indexOf(u8, out, " from ") == null);
+}
+
 test "import attributes: dynamic import stripped by default" {
     try expectTsOutput(
         \\export async function load() { return import('./data.json', { with: { type: 'json' } }); }

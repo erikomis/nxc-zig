@@ -29,6 +29,28 @@ test "SourceMap emits valid sourcemap json with escaped sources and sourceRoot" 
     );
 }
 
+test "SourceMap escapes control characters in sourceRoot and sources" {
+    var sm = SourceMap.init(std.testing.allocator);
+    defer sm.deinit();
+
+    sm.source_root = "a\tb\nc";
+    _ = try sm.addSource("x\"y", null);
+    try sm.addMapping(.{
+        .gen_line = 0,
+        .gen_col = 0,
+        .source_idx = 0,
+        .src_line = 0,
+        .src_col = 0,
+    });
+
+    const json = try sm.toJsonAlloc();
+    defer std.testing.allocator.free(json);
+
+    // sourceRoot must be JSON-escaped exactly like the sources entries.
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"sourceRoot\":\"a\\tb\\nc\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"x\\\"y\"") != null);
+}
+
 test "SourceMap sorts mappings before VLQ encoding" {
     var sm = SourceMap.init(std.testing.allocator);
     defer sm.deinit();

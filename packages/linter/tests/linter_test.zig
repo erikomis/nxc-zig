@@ -785,6 +785,23 @@ test "prefer-template fix: nested string concat" {
     try std.testing.expect(r.fixed_source.?.len > 0);
 }
 
+test "prefer-template fix: deeply nested concat does not overflow fix buffer" {
+    var cfg = linter.Config{
+        .rule_overrides = blk: {
+            var list = std.ArrayListUnmanaged(linter.RuleOverride).empty;
+            list.append(std.testing.allocator, .{ .code = try std.testing.allocator.dupe(u8, "prefer-template"), .severity = .warn }) catch unreachable;
+            break :blk list;
+        },
+    };
+    defer cfg.deinit(std.testing.allocator);
+    // Multiple overlapping fixes are produced for the nested `+` nodes; the
+    // fix-application length pass and write pass must agree on which are skipped.
+    const r = try linter.lintWithConfig("'a' + x + 'b' + y + 'c' + z;", "test.ts", cfg, std.testing.allocator);
+    defer r.deinit(std.testing.allocator);
+    try std.testing.expect(r.fixed_source != null);
+    try std.testing.expect(r.fixed_source.?.len > 0);
+}
+
 // ── 6.3 Config / Env / Plugin Tests ─────────────────────
 
 test "no-process-exit: fires when env.node is true" {

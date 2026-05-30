@@ -61,15 +61,20 @@ pub const SourceMap = struct {
         defer if (content_json) |c| self.alloc.free(c);
 
         if (self.source_root) |root| {
+            var root_buf = std.ArrayListUnmanaged(u8).empty;
+            defer root_buf.deinit(self.alloc);
+            try appendJsonEscaped(&root_buf, self.alloc, root);
+            const root_escaped = root_buf.items;
+
             if (content_json) |c| {
                 return std.fmt.allocPrint(self.alloc,
                     "{{\"version\":3,\"sourceRoot\":\"{s}\",\"sources\":[{s}],\"sourcesContent\":[{s}],\"names\":[],\"mappings\":\"{s}\"}}",
-                    .{ root, sources_json, c, mappings_json },
+                    .{ root_escaped, sources_json, c, mappings_json },
                 );
             }
             return std.fmt.allocPrint(self.alloc,
                 "{{\"version\":3,\"sourceRoot\":\"{s}\",\"sources\":[{s}],\"names\":[],\"mappings\":\"{s}\"}}",
-                .{ root, sources_json, mappings_json },
+                .{ root_escaped, sources_json, mappings_json },
             );
         }
         if (content_json) |c| {
