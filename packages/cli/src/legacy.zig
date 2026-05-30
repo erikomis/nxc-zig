@@ -63,18 +63,25 @@ pub fn isDefaultIgnored(path: []const u8) bool {
     return false;
 }
 
+/// Returns src_file with the src_root prefix stripped, or just its basename
+/// when src_file is not located under src_root. The prefix only matches on a
+/// path-separator boundary, so a root of "src" does not match "src-other/a.ts".
+fn relativeTo(src_file: []const u8, src_root: []const u8) []const u8 {
+    const root = std.mem.trimEnd(u8, src_root, "/");
+    const under_root = std.mem.startsWith(u8, src_file, root) and
+        (root.len == 0 or src_file.len == root.len or src_file[root.len] == '/');
+    if (under_root) {
+        const trimmed = std.mem.trimStart(u8, src_file[root.len..], "/");
+        if (trimmed.len > 0) return trimmed;
+    }
+    return std.fs.path.basename(src_file);
+}
+
 /// Compute output path for src_file given a src_root and out_dir.
 /// Strips src_root prefix from src_file, then changes extension to .js.
 pub fn buildOutPath(src_file: []const u8, src_root: []const u8, out_dir: []const u8, alloc: std.mem.Allocator) ![]u8 {
-    const root = std.mem.trimEnd(u8, src_root, "/");
     const out = std.mem.trimEnd(u8, out_dir, "/");
-
-    var rel: []const u8 = std.fs.path.basename(src_file);
-    if (std.mem.startsWith(u8, src_file, root)) {
-        const after = src_file[root.len..];
-        const trimmed = std.mem.trimStart(u8, after, "/");
-        if (trimmed.len > 0) rel = trimmed;
-    }
+    const rel = relativeTo(src_file, src_root);
 
     const dot = std.mem.lastIndexOfScalar(u8, rel, '.');
     const stem = if (dot) |d| rel[0..d] else rel;
@@ -83,15 +90,8 @@ pub fn buildOutPath(src_file: []const u8, src_root: []const u8, out_dir: []const
 }
 
 pub fn buildCopyOutPath(src_file: []const u8, src_root: []const u8, out_dir: []const u8, alloc: std.mem.Allocator) ![]u8 {
-    const root = std.mem.trimEnd(u8, src_root, "/");
     const out = std.mem.trimEnd(u8, out_dir, "/");
-
-    var rel: []const u8 = std.fs.path.basename(src_file);
-    if (std.mem.startsWith(u8, src_file, root)) {
-        const after = src_file[root.len..];
-        const trimmed = std.mem.trimStart(u8, after, "/");
-        if (trimmed.len > 0) rel = trimmed;
-    }
+    const rel = relativeTo(src_file, src_root);
 
     return std.fmt.allocPrint(alloc, "{s}/{s}", .{ out, rel });
 }
@@ -188,15 +188,7 @@ pub fn compileDirAll(src_dir: []const u8, out_dir: []const u8, cfg: compiler.Con
             file_cfg.jsx = true;
         }
 
-        const out_path = try buildOutPath(src_file, src_dir, out_dir, alloc);
-        defer alloc.free(out_path);
-
-        if (std.fs.path.dirname(out_path)) |dir| {
-            makeDirAll(dir, io) catch |err| {
-                std.debug.print("warning: failed to create dir {s}: {}\n", .{ dir, err });
-            };
-        }
-
+        // compileSingle (via emitToPath) creates the output directory itself.
         compileSingle(src_file, src_dir, null, out_dir, file_cfg, io, alloc) catch |err| {
             switch (err) {
                 error.IsDir => std.debug.print("error compiling {s}: expected a file path, but received a directory\n", .{src_file}),
@@ -216,22 +208,13 @@ pub fn copySingle(src_file: []const u8, src_root: []const u8, out_file: ?[]const
     defer alloc.free(data);
 
     if (out_file) |of| {
-        if (std.fs.path.dirname(of)) |dir| {
-            makeDirAll(dir, io) catch |err| {
-                std.debug.print("warning: failed to create dir {s}: {}\n", .{ dir, err });
-            };
-        }
+        ensureParentDir(of, io);
         try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = of, .data = data });
     } else if (out_dir) |od| {
         const out_path = try buildCopyOutPath(src_file, src_root, od, alloc);
         defer alloc.free(out_path);
 
-        if (std.fs.path.dirname(out_path)) |dir| {
-            makeDirAll(dir, io) catch |err| {
-                std.debug.print("warning: failed to create dir {s}: {}\n", .{ dir, err });
-            };
-        }
-
+        ensureParentDir(out_path, io);
         try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = out_path, .data = data });
     } else {
         try std.Io.File.stdout().writeStreamingAll(io, data);
@@ -249,89 +232,58 @@ pub fn compileSingle(src_file: []const u8, src_root: []const u8, out_file: ?[]co
     const emit_js = !cfg.emit_declaration_only;
 
     if (out_file) |of| {
-        if (std.fs.path.dirname(of)) |dir| {
-            makeDirAll(dir, io) catch |err| {
-                std.debug.print("warning: failed to create dir {s}: {}\n", .{ dir, err });
-            };
-        }
-
-        if (emit_js) {
-            if (result.map) |map| {
-                if (cfg.inline_source_map) {
-                    const code_with_comment = try appendInlineSourceMapComment(result.code, map, alloc);
-                    defer alloc.free(code_with_comment);
-                    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = of, .data = code_with_comment });
-                } else {
-                    const map_path = try buildMapPath(of, alloc);
-                    defer alloc.free(map_path);
-                    const code_with_comment = try appendSourceMapComment(result.code, of, alloc);
-                    defer alloc.free(code_with_comment);
-                    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = of, .data = code_with_comment });
-                    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = map_path, .data = map });
-                }
-            } else {
-                try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = of, .data = result.code });
-            }
-        }
-
-        if (result.declarations) |dts| {
-            const dts_path = if (cfg.declaration_dir) |dd| blk: {
-                const base = std.fs.path.basename(of);
-                break :blk try std.fs.path.join(alloc, &.{ dd, base });
-            } else try compiler.declarationPathFromJsPath(alloc, of);
-            defer alloc.free(dts_path);
-
-            if (std.fs.path.dirname(dts_path)) |dir| {
-                makeDirAll(dir, io) catch |err| {
-                    std.debug.print("warning: failed to create dir {s}: {}\n", .{ dir, err });
-                };
-            }
-
-            try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = dts_path, .data = dts });
-        }
+        try emitToPath(of, result, cfg, emit_js, io, alloc);
     } else if (out_dir) |od| {
         const out_path = try buildOutPath(src_file, src_root, od, alloc);
         defer alloc.free(out_path);
-        if (std.fs.path.dirname(out_path)) |dir| {
-            makeDirAll(dir, io) catch |err| {
-                std.debug.print("warning: failed to create dir {s}: {}\n", .{ dir, err });
-            };
-        }
-        if (emit_js) {
-            if (result.map) |map| {
-                if (cfg.inline_source_map) {
-                    const code_with_comment = try appendInlineSourceMapComment(result.code, map, alloc);
-                    defer alloc.free(code_with_comment);
-                    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = out_path, .data = code_with_comment });
-                } else {
-                    const map_path = try buildMapPath(out_path, alloc);
-                    defer alloc.free(map_path);
-                    const code_with_comment = try appendSourceMapComment(result.code, out_path, alloc);
-                    defer alloc.free(code_with_comment);
-                    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = out_path, .data = code_with_comment });
-                    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = map_path, .data = map });
-                }
-            } else {
-                try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = out_path, .data = result.code });
-            }
-        }
-        if (result.declarations) |dts| {
-            const dts_path = if (cfg.declaration_dir) |dd| blk: {
-                const base = std.fs.path.basename(out_path);
-                break :blk try std.fs.path.join(alloc, &.{ dd, base });
-            } else try compiler.declarationPathFromJsPath(alloc, out_path);
-            defer alloc.free(dts_path);
-
-            if (std.fs.path.dirname(dts_path)) |dir| {
-                makeDirAll(dir, io) catch |err| {
-                    std.debug.print("warning: failed to create dir {s}: {}\n", .{ dir, err });
-                };
-            }
-
-            try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = dts_path, .data = dts });
-        }
+        try emitToPath(out_path, result, cfg, emit_js, io, alloc);
     } else if (emit_js) {
         try std.Io.File.stdout().writeStreamingAll(io, result.code);
+    }
+}
+
+/// Write the compiled JS (with its source map, when present) and any emitted
+/// declarations to out_path, creating parent directories as needed.
+fn emitToPath(out_path: []const u8, result: anytype, cfg: compiler.Config, emit_js: bool, io: std.Io, alloc: std.mem.Allocator) !void {
+    ensureParentDir(out_path, io);
+
+    if (emit_js) {
+        if (result.map) |map| {
+            if (cfg.inline_source_map) {
+                const code_with_comment = try appendInlineSourceMapComment(result.code, map, alloc);
+                defer alloc.free(code_with_comment);
+                try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = out_path, .data = code_with_comment });
+            } else {
+                const map_path = try buildMapPath(out_path, alloc);
+                defer alloc.free(map_path);
+                const code_with_comment = try appendSourceMapComment(result.code, out_path, alloc);
+                defer alloc.free(code_with_comment);
+                try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = out_path, .data = code_with_comment });
+                try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = map_path, .data = map });
+            }
+        } else {
+            try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = out_path, .data = result.code });
+        }
+    }
+
+    if (result.declarations) |dts| {
+        const dts_path = if (cfg.declaration_dir) |dd| blk: {
+            const base = std.fs.path.basename(out_path);
+            break :blk try std.fs.path.join(alloc, &.{ dd, base });
+        } else try compiler.declarationPathFromJsPath(alloc, out_path);
+        defer alloc.free(dts_path);
+
+        ensureParentDir(dts_path, io);
+        try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = dts_path, .data = dts });
+    }
+}
+
+/// Create the parent directory of path (if any), logging a warning on failure.
+fn ensureParentDir(path: []const u8, io: std.Io) void {
+    if (std.fs.path.dirname(path)) |dir| {
+        makeDirAll(dir, io) catch |err| {
+            std.debug.print("warning: failed to create dir {s}: {}\n", .{ dir, err });
+        };
     }
 }
 
