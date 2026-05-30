@@ -18,3 +18,4 @@ export const datePattern = /(?<year>\d{4})-(?<month>\d{2})-(?<day>\d{2})/;
 export function extractDigits(input: string): string[] {
   return input.match(/\d+/g) ?? [];
 }
+

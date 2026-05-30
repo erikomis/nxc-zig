@@ -1,13 +1,14 @@
-type LengthAwareIterable<T = any> = Iterable<T> & object;
-type LengthAwareAsyncIterable<T = any> = AsyncIterable<T> & object;
+type LengthAwareIterable<T = any> = Iterable<T> & { length: number };
+type LengthAwareAsyncIterable<T = any> = AsyncIterable<T> & { length: number };
 
-const isLengthAwareAsyncIterable = (value: unknown) => {
+const isLengthAwareAsyncIterable = <T = any>(value: unknown): value is LengthAwareAsyncIterable<T> => {
   return !!value && typeof value === "object" && "length" in value;
 };
 
-const isLengthAwareIterable = (value: unknown) => {
+const isLengthAwareIterable = <T = any>(value: unknown): value is LengthAwareIterable<T> => {
   return !!value && typeof value === "object" && "length" in value;
 };
 
-export const LengthAwareAsyncIterable = () => isLengthAwareAsyncIterable<T>;
-export const LengthAwareIterable = () => isLengthAwareIterable<T>;
+export const LengthAwareAsyncIterable = <T = any>() => isLengthAwareAsyncIterable<T>;
+export const LengthAwareIterable = <T = any>() => isLengthAwareIterable<T>;
+

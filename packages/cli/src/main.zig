@@ -8,31 +8,71 @@ const common = @import("common");
 pub const ansi = @import("ansi.zig");
 const terminal = @import("terminal.zig");
 
+const version_str = "0.1.0";
+
 const Io = std.Io;
 
 const usage =
-    \\nxc - ESM-first TypeScript compiler written in Zig
+    \\nxc v0.1.0 — ESM-first TypeScript compiler written in Zig
     \\
     \\Usage:
+    \\  nxc [--help] [--version]
     \\  nxc compile [options] <file|dir> [file|dir ...]
-    \\  nxc lint <file> [file ...]
-    \\  nxc format [--write] [--out-file <path>] <file>
-    \\  nxc [options] <file|dir> [file|dir ...]
+    \\  nxc lint [options] <file> [file ...]
+    \\  nxc format [options] <file>
+    \\  nxc init
+    \\  nxc doctor
+    \\  nxc clean
+    \\  nxc stats
+    \\  nxc ast <file>
+    \\  nxc explain <rule>
     \\
-    \\Options:
-    \\  --out-file <path>       Output file (single file only, default: stdout)
+    \\Commands:
+    \\  compile     Compile TypeScript/JavaScript to JavaScript
+    \\  lint        Lint source files with built-in rules
+    \\  format      Format source files (Prettier-compatible)
+    \\  init        Create default tsconfig.json + nxc.config.js
+    \\  doctor      Check project health and configuration
+    \\  clean       Remove build output and cache
+    \\  stats       Show project statistics
+    \\  ast         Print parsed AST of a file
+    \\
+    \\Compile Options:
+    \\  --out-file <path>       Single output file (default: stdout)
     \\  --out-dir  <dir>        Output directory (default: dist)
-    \\  --delete-out-dir        Delete out-dir before compiling
-    \\  --import-interop node|none     ESM interop strategy (default: node)
+    \\  --delete-out-dir        Delete out-dir before building
+    \\  --import-interop node|none  ESM interop strategy (default: node)
     \\  --jsx      classic|auto JSX runtime
-    \\  --no-ts                 Disable TypeScript stripping
-    \\  --config   <path>       Config file (default: tsconfig.json)
+    \\  --no-ts                 Disable TypeScript type stripping
+    \\  --minify                Minify output JavaScript
+    \\  --allow-js              Process .js/.jsx files
+    \\  --verbose               Verbose output
+    \\  --config   <path>       Config file (default: auto-detect)
     \\  --watch                 Watch mode (poll-based)
-    \\  -h, --help              Show help
+    \\
+    \\Lint Options:
+    \\  --config <path>         Config file
+    \\  --fix                   Auto-fix issues
+    \\  --cache                 Enable result caching
+    \\  --watch                 Watch mode
+    \\  --json                  JSON output format
+    \\  --list-rules            Show all available rules
+    \\  --verbose               Verbose output
+    \\
+    \\Format Options:
+    \\  --write                 Write output in-place
+    \\  --check                 Check if files are formatted (CI mode)
+    \\  --out-file <path>       Write to specific file
+    \\  --config <path>         Config file
+    \\  --watch                 Watch mode
     \\
     \\tsconfig.json keys:
-    \\  compilerOptions.paths            Path aliases (e.g. {"#/*": ["./*"]})
-    \\  compilerOptions.declaration      Emit .d.ts files when true
+    \\  compilerOptions.target, .jsx, .jsxImportSource, .paths,
+    \\  .baseUrl, .strict, .declaration, .sourceMap, .outDir,
+    \\  .rootDir, .allowJs, .removeComments, .noEmit, .module,
+    \\  .esModuleInterop, .experimentalDecorators, .inlineSourceMap,
+    \\  .inlineSources, .declarationDir, .emitDeclarationOnly,
+    \\  .isolatedModules, .resolveJsonModule
     \\
 ;
 
@@ -53,19 +93,61 @@ pub fn main(init: std.process.Init) !void {
         return;
     }
 
+    if (args_slice.len > 1 and std.mem.eql(u8, args_slice[1], "init")) {
+        try runInitCommand(io, alloc);
+        return;
+    }
+
+    if (args_slice.len > 1 and std.mem.eql(u8, args_slice[1], "doctor")) {
+        try runDoctorCommand(io, alloc);
+        return;
+    }
+
+    if (args_slice.len > 1 and std.mem.eql(u8, args_slice[1], "clean")) {
+        try runCleanCommand(io);
+        return;
+    }
+
+    if (args_slice.len > 1 and std.mem.eql(u8, args_slice[1], "stats")) {
+        try runStatsCommand(io, alloc);
+        return;
+    }
+
+    if (args_slice.len > 1 and std.mem.eql(u8, args_slice[1], "ast")) {
+        if (args_slice.len > 2) {
+            try runAstCommand(args_slice[2], io, alloc);
+        } else {
+            try Io.File.stdout().writeStreamingAll(io, "Usage: nxc ast <file>\n");
+        }
+        return;
+    }
+
+    if (args_slice.len > 1 and std.mem.eql(u8, args_slice[1], "explain")) {
+        if (args_slice.len > 2) {
+            try runExplainCommand(args_slice[2], io);
+        } else {
+            try Io.File.stdout().writeStreamingAll(io, "Usage: nxc explain <rule>\n");
+        }
+        return;
+    }
+
     var cfg = compiler.Config{};
     var input_paths = std.ArrayListUnmanaged([]const u8).empty;
     defer input_paths.deinit(alloc);
     var out_file: ?[]const u8 = null;
     var out_dir: ?[]const u8 = "dist";
-    var config_path: []const u8 = "tsconfig.json";
+    var config_path: ?[]const u8 = null;
     var watch = false;
     var delete_out_dir = false;
+    var verbose = false;
     var i: usize = if (args_slice.len > 1 and std.mem.eql(u8, args_slice[1], "compile")) 2 else 1;
     while (i < args_slice.len) : (i += 1) {
         const arg: []const u8 = args_slice[i];
         if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
             try Io.File.stdout().writeStreamingAll(io, usage);
+            return;
+        } else if (std.mem.eql(u8, arg, "--version")) {
+            try Io.File.stdout().writeStreamingAll(io, "nxc " ++ version_str ++ "\n");
             return;
         } else if (std.mem.eql(u8, arg, "--out-file")) {
             i += 1;
@@ -93,6 +175,12 @@ pub fn main(init: std.process.Init) !void {
                 .classic;
         } else if (std.mem.eql(u8, arg, "--no-ts")) {
             cfg.parser.syntax = .ecmascript;
+        } else if (std.mem.eql(u8, arg, "--minify")) {
+            cfg.minify = true;
+        } else if (std.mem.eql(u8, arg, "--allow-js")) {
+            cfg.allow_js = true;
+        } else if (std.mem.eql(u8, arg, "--verbose")) {
+            verbose = true;
         } else if (std.mem.eql(u8, arg, "--config")) {
             i += 1;
             if (i >= args_slice.len) fatal("--config requires value");
@@ -109,10 +197,17 @@ pub fn main(init: std.process.Init) !void {
         }
     }
 
-    if (config.readTsConfig(config_path, io, alloc) catch null) |ts| {
+    var ts_files: [][]const u8 = &.{};
+    var ts_include: [][]const u8 = &.{};
+    var ts_exclude: [][]const u8 = &.{};
+
+    const resolved_config_path = config_path orelse compiler.findTsConfig(io, alloc) orelse "tsconfig.json";
+    defer if (config_path == null and !std.mem.eql(u8, resolved_config_path, "tsconfig.json")) alloc.free(resolved_config_path);
+
+    if (config.readTsConfig(resolved_config_path, io, alloc) catch null) |ts| {
         ts.compiler_options.applyTo(&cfg) catch |err| switch (err) {
             error.UnsupportedTsTarget => {
-                const msg = "Unsupported tsconfig target. Only es2020, es2022, es2024, and esnext are allowed.";
+                const msg = "Unsupported tsconfig target. Supported: es2015, es2016, es2017, es2018, es2019, es2020, es2022, es2024, and esnext.";
                 const colored = ansi.red(alloc, msg) catch {
                     std.debug.print("error: {s}\n", .{msg});
                     std.process.exit(1);
@@ -122,6 +217,35 @@ pub fn main(init: std.process.Init) !void {
                 std.process.exit(1);
             },
         };
+
+        ts_files = ts.files;
+        ts_include = ts.include;
+        ts_exclude = ts.exclude;
+
+        for (ts.references) |ref| {
+            const ref_tsconfig = try std.fs.path.join(alloc, &.{ ref, "tsconfig.json" });
+            defer alloc.free(ref_tsconfig);
+            const ref_out = try std.fs.path.join(alloc, &.{ ref, out_dir orelse "dist" });
+            defer alloc.free(ref_out);
+
+            if (config.readTsConfig(ref_tsconfig, io, alloc) catch null) |ref_ts| {
+                var ref_cfg = cfg;
+                config.applyCompilerOptions(ref_ts.compiler_options, &ref_cfg) catch {};
+                cli.compileInput(ref, null, ref_out, ref_cfg, io, alloc) catch |err| {
+                    std.debug.print("warning: failed to compile reference '{s}': {}\n", .{ ref, err });
+                };
+            }
+        }
+    }
+
+    // Use tsconfig files/include when no explicit paths given
+    if (input_paths.items.len == 0 and (ts_files.len > 0 or ts_include.len > 0)) {
+        const base_dir = std.fs.path.dirname(resolved_config_path) orelse ".";
+        const cfg_files = config.TsConfig{ .files = ts_files, .include = ts_include, .exclude = ts_exclude };
+        const found = config.resolveConfigFiles(&cfg_files, base_dir, io, alloc) catch &.{};
+        for (found) |f| {
+            try input_paths.append(alloc, f);
+        }
     }
 
     if (input_paths.items.len == 0) {
@@ -135,7 +259,9 @@ pub fn main(init: std.process.Init) !void {
 
     if (delete_out_dir) {
         const od = out_dir orelse "dist";
-        Io.Dir.cwd().deleteTree(io, od) catch {};
+        Io.Dir.cwd().deleteTree(io, od) catch |err| {
+            std.debug.print("warning: failed to delete out dir: {}\n", .{err});
+        };
     }
 
     if (watch) {
@@ -143,28 +269,50 @@ pub fn main(init: std.process.Init) !void {
         return;
     }
 
-    for (input_paths.items) |path| {
+    const start_time = std.time.milliTimestamp();
+    var compiled: usize = 0;
+    var errors: usize = 0;
+
+    for (input_paths.items, 0..) |path, idx| {
+        if (verbose) std.debug.print("[{d}/{d}] compiling {s}...\n", .{ idx + 1, input_paths.items.len, path });
         switch (cli.classifyInputPath(path, io)) {
             .directory => {
                 try cli.compileInput(path, null, out_dir orelse "dist", cfg, io, alloc);
+                compiled += 1;
             },
             .file => {
                 cli.compileInput(path, out_file, out_dir, cfg, io, alloc) catch |err| {
                     printPathError("compile", path, err);
-                    return err;
+                    errors += 1;
+                    continue;
                 };
+                compiled += 1;
             },
             .missing => {
                 printPathError("compile", path, error.FileNotFound);
-                return error.FileNotFound;
+                errors += 1;
+                continue;
             },
         }
     }
+
+    const elapsed_ms = std.time.milliTimestamp() - start_time;
+    if (compiled > 0) {
+        std.debug.print("Compiled {d} file(s) in {d}ms", .{ compiled, elapsed_ms });
+        if (errors > 0) std.debug.print(" ({d} errors)", .{errors});
+        std.debug.print("\n", .{});
+    }
+    if (errors > 0) return error.CompileFailed;
 }
 
 fn runLintCommand(args: []const []const u8, io: Io, alloc: std.mem.Allocator) !void {
     if (args.len == 0) {
         try Io.File.stdout().writeStreamingAll(io, usage);
+        return;
+    }
+
+    if (args.len == 1 and (std.mem.eql(u8, args[0], "--version") or std.mem.eql(u8, args[0], "-v"))) {
+        try Io.File.stdout().writeStreamingAll(io, "nxc-linter " ++ version_str ++ "\n");
         return;
     }
 
@@ -232,7 +380,13 @@ fn runLintCommand(args: []const []const u8, io: Io, alloc: std.mem.Allocator) !v
 }
 
 fn runFormatCommand(args: []const []const u8, io: Io, alloc: std.mem.Allocator) !void {
+    if (args.len == 1 and (std.mem.eql(u8, args[0], "--version") or std.mem.eql(u8, args[0], "-v"))) {
+        try Io.File.stdout().writeStreamingAll(io, "nxc-formatter " ++ version_str ++ "\n");
+        return;
+    }
+
     var write = false;
+    var check = false;
     var out_file: ?[]const u8 = null;
     var input: ?[]const u8 = null;
     var i: usize = 0;
@@ -240,6 +394,8 @@ fn runFormatCommand(args: []const []const u8, io: Io, alloc: std.mem.Allocator) 
         const arg = args[i];
         if (std.mem.eql(u8, arg, "--write")) {
             write = true;
+        } else if (std.mem.eql(u8, arg, "--check")) {
+            check = true;
         } else if (std.mem.eql(u8, arg, "--out-file")) {
             i += 1;
             if (i >= args.len) fatal("--out-file requires value");
@@ -256,6 +412,20 @@ fn runFormatCommand(args: []const []const u8, io: Io, alloc: std.mem.Allocator) 
         try Io.File.stdout().writeStreamingAll(io, usage);
         return;
     };
+    if (check) {
+        const source = common.readFileAlloc(path, io, alloc) catch |err| {
+            std.debug.print("error: failed to read '{s}': {}\n", .{ path, err });
+            std.process.exit(1);
+        };
+        defer alloc.free(source);
+        const formatted = try linter.format(source, common.FormatterOptions{}, alloc);
+        defer alloc.free(formatted);
+        if (!std.mem.eql(u8, source, formatted)) {
+            std.debug.print("{s}\n", .{path});
+            std.process.exit(1);
+        }
+        return;
+    }
     const formatted = try cli.formatPath(path, .{ .out_file = out_file, .write = write, .options = common.FormatterOptions{} }, io, alloc);
     defer alloc.free(formatted);
     if (!write and out_file == null) try Io.File.stdout().writeStreamingAll(io, formatted);
@@ -267,13 +437,17 @@ fn printLintDiagnostic(diag: linter.Diagnostic) void {
         .warn => "warning",
         .info => "info",
     };
-    std.debug.print("{s}:{d}:{d}: {s} {s}: {s}\n", .{
-        diag.filename,
-        diag.range.start.line,
-        diag.range.start.column,
-        sev,
-        diag.rule_code,
-        diag.message,
+    const color_code = switch (diag.severity) {
+        .err => "\x1b[31m",
+        .warn => "\x1b[33m",
+        .info => "\x1b[36m",
+        else => "",
+    };
+    const reset = "\x1b[0m";
+    std.debug.print("{s}{s}{s}: {s}{s}:{d}:{d}{s}: {s} {s}\n", .{
+        color_code, sev, reset,
+        reset, diag.filename, diag.range.start.line, diag.range.start.column, reset,
+        diag.rule_code, diag.message,
     });
 }
 
@@ -374,10 +548,10 @@ test "applyTsConfigOverrides maps target esnext" {
     try std.testing.expectEqual(config.Target.esnext, cfg.target);
 }
 
-test "applyTsConfigOverrides rejects tsconfig target below es2020" {
+test "applyTsConfigOverrides rejects tsconfig target below es2015" {
     var cfg = compiler.Config{};
     const ts = config.TsConfig{
-        .compiler_options = .{ .target = "ES2019" },
+        .compiler_options = .{ .target = "ES5" },
     };
     try std.testing.expectError(error.UnsupportedTsTarget, applyTsConfigOverrides(&cfg, ts));
 }
@@ -385,9 +559,50 @@ test "applyTsConfigOverrides rejects tsconfig target below es2020" {
 test "applyTsConfigOverrides rejects unsupported tsconfig target" {
     var cfg = compiler.Config{};
     const ts = config.TsConfig{
-        .compiler_options = .{ .target = "ES2018" },
+        .compiler_options = .{ .target = "ES7" },
     };
     try std.testing.expectError(error.UnsupportedTsTarget, applyTsConfigOverrides(&cfg, ts));
+}
+
+test "parseSupportedTarget accepts es2015" {
+    try std.testing.expectEqual(config.Target.es2015, try config.parseSupportedTarget("ES2015"));
+}
+
+test "parseSupportedTarget accepts es6 as es2015" {
+    try std.testing.expectEqual(config.Target.es2015, try config.parseSupportedTarget("ES6"));
+}
+
+test "parseSupportedTarget accepts esnext" {
+    try std.testing.expectEqual(config.Target.esnext, try config.parseSupportedTarget("ESNext"));
+}
+
+test "parseSupportedTarget rejects unsupported" {
+    try std.testing.expectError(error.UnsupportedTsTarget, config.parseSupportedTarget("ES5"));
+}
+
+test "applyTsConfigOverrides maps es2015 target" {
+    var cfg = compiler.Config{};
+    const ts = config.TsConfig{
+        .compiler_options = .{ .target = "ES2015" },
+    };
+    try applyTsConfigOverrides(&cfg, ts);
+    try std.testing.expectEqual(config.Target.es2015, cfg.target);
+}
+
+test "applyTsConfigOverrides minify is false by default" {
+    const cfg = compiler.Config{};
+    try std.testing.expectEqual(false, cfg.minify);
+}
+
+test "applyTsConfigOverrides minify can be set true" {
+    const cfg = compiler.Config{ .minify = true };
+    try std.testing.expectEqual(true, cfg.minify);
+}
+
+test "applyTsConfigOverrides module target defaults" {
+    const cfg = compiler.Config{};
+    const defaults = compiler.Config{};
+    try std.testing.expectEqual(defaults.module.target, cfg.module.target);
 }
 
 fn printPathError(action: []const u8, path: []const u8, err: anyerror) void {
@@ -396,6 +611,379 @@ fn printPathError(action: []const u8, path: []const u8, err: anyerror) void {
         error.FileNotFound => std.debug.print("error: failed to {s} '{s}': file not found\n", .{ action, path }),
         else => std.debug.print("error: failed to {s} '{s}': {}\n", .{ action, path, err }),
     }
+}
+
+fn runInitCommand(io: Io, alloc: std.mem.Allocator) !void {
+    _ = alloc;
+
+    const tsconfig =
+        \\{
+        \\  "compilerOptions": {
+        \\    "target": "ES2022",
+        \\    "module": "ESNext",
+        \\    "jsx": "react-jsx",
+        \\    "jsxImportSource": "react",
+        \\    "declaration": true,
+        \\    "sourceMap": true,
+        \\    "esModuleInterop": true,
+        \\    "strict": true,
+        \\    "outDir": "dist",
+        \\    "rootDir": "src",
+        \\    "paths": {
+        \\      "@/*": ["./src/*"]
+        \\    }
+        \\  },
+        \\  "include": ["src"],
+        \\  "exclude": ["node_modules", "dist"]
+        \\}
+        \\
+    ;
+
+    const nxc_config =
+        \\export default defineConfig({
+        \\  env: { node: true },
+        \\  formatter: {
+        \\    singleQuote: true,
+        \\    semi: true,
+        \\    trailingComma: 'all',
+        \\    tabWidth: 2,
+        \\    printWidth: 100,
+        \\  },
+        \\  rules: {
+        \\    'no-console': 'warn',
+        \\    'no-debugger': 'error',
+        \\    'no-unused-vars': 'warn',
+        \\    'no-var': 'error',
+        \\    'prefer-const': 'warn',
+        \\    'eqeqeq': 'error',
+        \\  },
+        \\  compilerOptions: {
+        \\    target: 'ES2022',
+        \\    outDir: 'dist',
+        \\  }
+        \\})
+        \\
+    ;
+
+    if (Io.Dir.cwd().statFile(io, "tsconfig.json", .{})) |_| {
+        std.debug.print("tsconfig.json already exists, skipping\n", .{});
+    } else |_| {
+        Io.Dir.cwd().writeFile(io, .{ .sub_path = "tsconfig.json", .data = tsconfig }) catch |err| {
+            std.debug.print("error: failed to create tsconfig.json: {}\n", .{err});
+        };
+        std.debug.print("Created tsconfig.json\n", .{});
+    }
+
+    if (Io.Dir.cwd().statFile(io, "nxc.config.js", .{})) |_| {
+        std.debug.print("nxc.config.js already exists, skipping\n", .{});
+    } else |_| {
+        Io.Dir.cwd().writeFile(io, .{ .sub_path = "nxc.config.js", .data = nxc_config }) catch |err| {
+            std.debug.print("error: failed to create nxc.config.js: {}\n", .{err});
+        };
+        std.debug.print("Created nxc.config.js\n", .{});
+    }
+
+    const gitignore =
+        \\dist/
+        \\node_modules/
+        \\.zig-cache/
+        \\zig-out/
+        \\*.js.map
+        \\*.d.ts
+        \\
+    ;
+    if (Io.Dir.cwd().statFile(io, ".gitignore", .{})) |_| {
+        std.debug.print(".gitignore already exists, skipping\n", .{});
+    } else |_| {
+        Io.Dir.cwd().writeFile(io, .{ .sub_path = ".gitignore", .data = gitignore }) catch |err| {
+            std.debug.print("error: failed to create .gitignore: {}\n", .{err});
+        };
+        std.debug.print("Created .gitignore\n", .{});
+    }
+
+    const index_ts =
+        \\export function hello(name: string): string {
+        \\  return `Hello, ${name}!`;
+        \\}
+        \\
+        \\console.log(hello("world"));
+        \\
+    ;
+    Io.Dir.cwd().createDirPath(io, "src") catch {};
+    if (Io.Dir.cwd().statFile(io, "src/index.ts", .{})) |_| {
+        std.debug.print("src/index.ts already exists, skipping\n", .{});
+    } else |_| {
+        Io.Dir.cwd().writeFile(io, .{ .sub_path = "src/index.ts", .data = index_ts }) catch |err| {
+            std.debug.print("error: failed to create src/index.ts: {}\n", .{err});
+        };
+        std.debug.print("Created src/index.ts\n", .{});
+    }
+
+    std.debug.print("\nDone. Run 'nxc compile src' to build.\n", .{});
+}
+
+fn runDoctorCommand(io: Io, alloc: std.mem.Allocator) !void {
+    const green = "\x1b[32m";
+    const yellow = "\x1b[33m";
+    const red = "\x1b[31m";
+    const reset = "\x1b[0m";
+
+    try Io.File.stdout().writeStreamingAll(io, "nxc doctor v0.1.0\n\n");
+
+    var issues: usize = 0;
+
+    // Check config files
+    const configs = [_][]const u8{ "tsconfig.json", "nxc.config.js" };
+    for (configs) |cfg_name| {
+        if (Io.Dir.cwd().statFile(io, cfg_name, .{})) |_| {
+            std.debug.print("  {s}✓{s} {s} found\n", .{ green, reset, cfg_name });
+            // Validate parse
+            if (std.mem.endsWith(u8, cfg_name, ".json")) {
+                if (config.readTsConfig(cfg_name, io, alloc) catch null) |_| {
+                    std.debug.print("    {s}✓{s} valid JSON/JSON5\n", .{ green, reset });
+                } else |_| {
+                    std.debug.print("    {s}✗{s} failed to parse\n", .{ red, reset });
+                    issues += 1;
+                }
+            }
+        } else |_| {
+            std.debug.print("  {s}○{s} {s} not found\n", .{ yellow, reset, cfg_name });
+        }
+    }
+
+    // Check src directory
+    if (Io.Dir.cwd().statFile(io, "src", .{})) |stat| {
+        if (stat.kind == .directory) {
+            var file_count: usize = 0;
+            var dir = Io.Dir.cwd().openDir(io, "src", .{ .iterate = true }) catch null;
+            if (dir) |*d| {
+                defer d.close(io);
+                var walker = try d.walk(alloc);
+                defer walker.deinit();
+                while (try walker.next(io)) |entry| {
+                    if (entry.kind == .file) file_count += 1;
+                }
+            }
+            if (file_count > 0) {
+                std.debug.print("  {s}✓{s} src/ directory with {d} file(s)\n", .{ green, reset, file_count });
+            } else {
+                std.debug.print("  {s}○{s} src/ directory is empty\n", .{ yellow, reset });
+            }
+        }
+    } else |_| {
+        std.debug.print("  {s}✗{s} src/ directory not found\n", .{ red, reset });
+        issues += 1;
+    }
+
+    // Check node_modules
+    if (Io.Dir.cwd().statFile(io, "node_modules", .{})) |_| {
+        std.debug.print("  {s}✓{s} node_modules/ exists\n", .{ green, reset });
+    } else |_| {
+        std.debug.print("  {s}○{s} node_modules/ not found (install dependencies if needed)\n", .{ yellow, reset });
+    }
+
+    // Check dist
+    if (Io.Dir.cwd().statFile(io, "dist", .{})) |_| {
+        std.debug.print("  {s}✓{s} dist/ output directory exists\n", .{ green, reset });
+    } else |_| {
+        std.debug.print("  {s}○{s} dist/ not created yet\n", .{ yellow, reset });
+    }
+
+    if (issues > 0) {
+        std.debug.print("\n{s}Found {d} issue(s). Run 'nxc init' to create default config.{s}\n", .{ red, issues, reset });
+    } else {
+        std.debug.print("\n{s}All checks passed! Ready to compile.{s}\n", .{ green, reset });
+    }
+}
+
+fn runCleanCommand(io: Io) !void {
+    const dirs = [_][]const u8{ "dist", ".zig-cache", "zig-out", "node_modules/nxc" };
+    for (dirs) |dir| {
+        if (Io.Dir.cwd().statFile(io, dir, .{})) |stat| {
+            if (stat.kind == .directory) {
+                Io.Dir.cwd().deleteTree(io, dir) catch |err| {
+                    std.debug.print("warning: failed to remove {s}: {}\n", .{ dir, err });
+                    continue;
+                };
+                std.debug.print("Removed {s}/\n", .{dir});
+            }
+        } else |_| {}
+    }
+    std.debug.print("Cleaned build artifacts\n", .{});
+}
+
+fn runStatsCommand(io: Io, alloc: std.mem.Allocator) !void {
+    try Io.File.stdout().writeStreamingAll(io, "nxc stats\n\n");
+
+    var total_files: usize = 0;
+    var total_lines: usize = 0;
+    var total_bytes: usize = 0;
+    var ext_counts = std.StringHashMapUnmanaged(usize).empty;
+    defer {
+        var it = ext_counts.keyIterator();
+        while (it.next()) |k| alloc.free(k.*);
+        ext_counts.deinit(alloc);
+    }
+
+    const LargestFile = struct { path: []const u8, lines: usize, bytes: usize };
+    var largest = std.ArrayListUnmanaged(LargestFile).empty;
+    defer {
+        for (largest.items) |f| alloc.free(f.path);
+        largest.deinit(alloc);
+    }
+
+    const exts = [_][]const u8{ ".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs", ".json", ".css" };
+
+    for (exts) |ext| {
+        var dir = Io.Dir.cwd().openDir(io, ".", .{ .iterate = true }) catch continue;
+        var walker = try dir.walk(alloc);
+        defer walker.deinit();
+        var count: usize = 0;
+        var lines: usize = 0;
+        var bytes: usize = 0;
+
+        while (try walker.next(io)) |entry| {
+            if (entry.kind != .file) continue;
+            if (!std.mem.endsWith(u8, entry.basename, ext)) continue;
+            const path = entry.path;
+            if (std.mem.indexOf(u8, path, "node_modules") != null) continue;
+            if (std.mem.indexOf(u8, path, "dist/") != null) continue;
+            if (std.mem.indexOf(u8, path, ".zig-cache") != null) continue;
+
+            const source = Io.Dir.cwd().readFileAlloc(io, path, alloc, std.Io.Limit.limited(1 * 1024 * 1024)) catch continue;
+            defer alloc.free(source);
+            var file_lines: usize = 0;
+            for (source) |c| {
+                if (c == '\n') file_lines += 1;
+            }
+
+            try largest.append(alloc, .{ .path = try alloc.dupe(u8, path), .lines = file_lines, .bytes = source.len });
+            count += 1;
+            lines += file_lines;
+            bytes += source.len;
+        }
+
+        if (count > 0) {
+            const key = try alloc.dupe(u8, ext);
+            try ext_counts.put(alloc, key, count);
+            total_files += count;
+            total_lines += lines;
+            total_bytes += bytes;
+            const kb = @as(f64, @floatFromInt(bytes)) / 1024.0;
+            std.debug.print("  {s:<8} {d:>4} files  {d:>6} lines  {d:>7.1} KB\n", .{ ext, count, lines, kb });
+        }
+        dir.close(io);
+    }
+
+    const total_kb = @as(f64, @floatFromInt(total_bytes)) / 1024.0;
+    std.debug.print("  ────────\n", .{});
+    std.debug.print("  {s:<8} {d:>4} files  {d:>6} lines  {d:>7.1} KB\n\n", .{ "total", total_files, total_lines, total_kb });
+
+    if (largest.items.len > 0) {
+        std.debug.print("Top largest files:\n", .{});
+        // Simple sort by bytes descending using insertion sort for small n
+        for (1..largest.items.len) |i| {
+            var j = i;
+            while (j > 0 and largest.items[j - 1].bytes < largest.items[j].bytes) : (j -= 1) {
+                const tmp = largest.items[j];
+                largest.items[j] = largest.items[j - 1];
+                largest.items[j - 1] = tmp;
+            }
+        }
+        const show = @min(largest.items.len, 5);
+        for (largest.items[0..show]) |f| {
+            const kb = @as(f64, @floatFromInt(f.bytes)) / 1024.0;
+            std.debug.print("  {d:>5.1} KB  {d:>4} lines  {s}\n", .{ kb, f.lines, f.path });
+        }
+    }
+}
+
+fn runAstCommand(path: []const u8, io: Io, alloc: std.mem.Allocator) !void {
+    const source = common.readFileAlloc(path, io, alloc) catch |err| {
+        std.debug.print("error: failed to read '{s}': {}\n", .{ path, err });
+        std.process.exit(1);
+    };
+    defer alloc.free(source);
+
+    const cfg = compiler.Config{};
+    var result = compiler.parse(source, path, cfg, alloc) catch |err| {
+        std.debug.print("error: failed to parse '{s}': {}\n", .{ path, err });
+        std.process.exit(1);
+    };
+    defer result.deinit(alloc);
+
+    if (result.diagnostics.len > 0) {
+        std.debug.print("{d} diagnostic(s):\n", .{result.diagnostics.len});
+        for (result.diagnostics) |d| {
+            std.debug.print("  {s}:{d}:{d}: {s}\n", .{ d.filename, d.line, d.col, d.message });
+        }
+        std.debug.print("\n", .{});
+    }
+
+    if (result.program_id) |prog_id| {
+        std.debug.print("AST ({d} nodes):\n", .{result.node_arena.nodes.items.len});
+        for (result.node_arena.nodes.items, 0..) |node, i| {
+            const span = node.span();
+            const tag = @tagName(node);
+            std.debug.print("  [{d}] {s}", .{ i, tag });
+
+            switch (node) {
+                .ident => |id| std.debug.print(" name='{s}'", .{id.name}),
+                .str_lit => |s| std.debug.print(" value='{s}'", .{s.value}),
+                .num_lit => |n| std.debug.print(" value={s}", .{n.raw}),
+                .import_decl => {
+                    const src = result.node_arena.get(node.import_decl.source);
+                    if (src.* == .str_lit) std.debug.print(" from='{s}'", .{src.str_lit.value});
+                },
+                .fn_decl => {
+                    if (node.fn_decl.id) |id| {
+                        const name = result.node_arena.get(id);
+                        if (name.* == .ident) std.debug.print(" name='{s}'", .{name.ident.name});
+                    }
+                },
+                else => {},
+            }
+            std.debug.print(" @{d}:{d}\n", .{ span.line, span.col });
+        }
+        _ = prog_id;
+    } else {
+        std.debug.print("Parse error: no program generated\n", .{});
+    }
+}
+
+fn runExplainCommand(rule_name: []const u8, io: Io) !void {
+    const ExplainEntry = struct { code: []const u8, sev: []const u8, desc: []const u8, example: []const u8 };
+    const rules = [_]ExplainEntry{
+        .{ .code = "no-console", .sev = "warn", .desc = "Disallow console.log, console.error, etc.", .example = "console.log('debug') // ✗ use a proper logger" },
+        .{ .code = "no-debugger", .sev = "err", .desc = "Disallow debugger statements in production code.", .example = "debugger // ✗ remove before commit" },
+        .{ .code = "no-eval", .sev = "err", .desc = "Disallow eval() which can execute arbitrary code.", .example = "eval('1 + 1') // ✗ use explicit code" },
+        .{ .code = "no-var", .sev = "err", .desc = "Require let or const instead of var.", .example = "var x = 1 // ✗ use const x = 1" },
+        .{ .code = "prefer-const", .sev = "warn", .desc = "Require const for variables that are never reassigned.", .example = "let x = 1 // ✗ use const x = 1" },
+        .{ .code = "eqeqeq", .sev = "err", .desc = "Require === and !== instead of == and !=", .example = "x == null // ✗ use x === null" },
+        .{ .code = "no-unused-vars", .sev = "warn", .desc = "Disallow unused variables.", .example = "const x = 1 // ✗ remove if unused" },
+        .{ .code = "no-empty", .sev = "err", .desc = "Disallow empty block statements.", .example = "if (x) {} // ✗ remove or add logic" },
+        .{ .code = "no-dupe-keys", .sev = "err", .desc = "Disallow duplicate keys in object literals.", .example = "const o = { a: 1, a: 2 } // ✗" },
+        .{ .code = "no-constant-condition", .sev = "err", .desc = "Disallow constant expressions in conditions.", .example = "if (true) {} // ✗ always true" },
+        .{ .code = "no-unsafe-finally", .sev = "err", .desc = "Disallow return/throw/break/continue in finally blocks.", .example = "finally { return x } // ✗ masks errors" },
+        .{ .code = "no-constructor-return", .sev = "err", .desc = "Disallow return value in class constructor.", .example = "constructor() { return {} } // ✗" },
+        .{ .code = "prefer-template", .sev = "warn", .desc = "Require template literals over string concatenation.", .example = "'a' + b // ✗ use `a${b}`" },
+        .{ .code = "no-await-in-loop", .sev = "err", .desc = "Disallow await inside of loops.", .example = "for (...) { await f() } // ✗ use Promise.all" },
+    };
+
+    for (rules) |r| {
+        if (std.mem.eql(u8, r.code, rule_name)) {
+            try std.Io.File.stdout().writeStreamingAll(io, r.code);
+            try std.Io.File.stdout().writeStreamingAll(io, "\n  Severity: ");
+            try std.Io.File.stdout().writeStreamingAll(io, r.sev);
+            try std.Io.File.stdout().writeStreamingAll(io, "\n  Description: ");
+            try std.Io.File.stdout().writeStreamingAll(io, r.desc);
+            try std.Io.File.stdout().writeStreamingAll(io, "\n  Example:\n    ");
+            try std.Io.File.stdout().writeStreamingAll(io, r.example);
+            try std.Io.File.stdout().writeStreamingAll(io, "\n");
+            return;
+        }
+    }
+    std.debug.print("Unknown rule '{s}'. Use --list-rules to see all rules.\n", .{rule_name});
 }
 
 fn fatal(msg: []const u8) noreturn {

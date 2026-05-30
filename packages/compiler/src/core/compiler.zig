@@ -200,7 +200,7 @@ fn validateImportAttributeSyntax(
     diags: *DiagnosticList,
 ) !void {
     const msg: ?[]const u8 = switch (target) {
-        .es2020, .es2022 => if (syntax == .with)
+        .es2015, .es2016, .es2017, .es2018, .es2019, .es2020, .es2022 => if (syntax == .with)
             "import attributes with `with` require target es2024 or esnext; use `assert` or raise the target"
         else
             null,
@@ -410,6 +410,7 @@ pub fn compile(
         },
         .remove_comments = cfg.remove_comments,
         .target = switch (cfg.target) {
+            .es2015, .es2016, .es2017, .es2018, .es2019 => .es2015,
             .es2020 => .es2020,
             .es2022 => .es2022,
             .es2024 => .es2024,
@@ -428,17 +429,20 @@ pub fn compile(
     } else null;
 
     var cg = try codegen.Codegen.init(&node_arena, a, .{
-        .pretty = true,
+        .pretty = !cfg.minify,
+        .cjs_output = cfg.module.target == .cjs,
         .source_map = cfg.source_maps,
         .source_name = filename,
         .source_root = source_root,
+        .source_content = if (cfg.inline_sources) source else null,
         .keep_import_attributes = cfg.keep_import_attributes,
         .import_attribute_syntax = switch (cfg.target) {
-            .es2020, .es2022 => .assert,
+            .es2015, .es2016, .es2017, .es2018, .es2019, .es2020, .es2022 => .assert,
             .es2024, .esnext => .with,
         },
         .remove_comments = cfg.remove_comments,
         .comments = p.comments.items,
+        .initial_buffer_capacity = source.len,
     });
     try cg.gen(program_id);
     const code = try cg.finish();

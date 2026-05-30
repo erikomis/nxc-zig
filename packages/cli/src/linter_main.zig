@@ -3,6 +3,7 @@ const std = @import("std");
 const cli = @import("cli");
 const linter = @import("linter");
 const cache = @import("cache");
+const watch = @import("watch");
 
 fn nowMs() i64 {
     var tp: std.os.linux.timespec = undefined;
@@ -14,9 +15,11 @@ const usage =
     \\nxc-linter - lint source files
     \\
     \\Usage:
-    \\  nxc-linter [--config <path>] [--fix] [--cache] [--verbose] [<file|dir> ...]
+    \\  nxc-linter [--config <path>] [--fix] [--cache] [--watch] [--json] [--list-rules] [--rules <a,b,c>] [--verbose] [<file|dir> ...]
     \\
     \\If no paths given, lints all source files in the current directory recursively.
+    \\  -h, --help              Show help
+    \\  --version               Show version
     \\
 ;
 
@@ -30,6 +33,9 @@ pub fn main(init: std.process.Init) !void {
     var fix = false;
     var verbose = false;
     var enable_cache = false;
+    var enable_watch = false;
+    var json_output = false;
+    var rules_filter: ?[]const u8 = null;
     var raw_paths = std.ArrayListUnmanaged([]const u8).empty;
     defer raw_paths.deinit(alloc);
 
@@ -38,6 +44,9 @@ pub fn main(init: std.process.Init) !void {
         const arg = args[i];
         if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
             try std.Io.File.stdout().writeStreamingAll(io, usage);
+            return;
+        } else if (std.mem.eql(u8, arg, "--version")) {
+            try std.Io.File.stdout().writeStreamingAll(io, "nxc-linter 0.1.0\n");
             return;
         } else if (std.mem.eql(u8, arg, "--config")) {
             i += 1;
@@ -49,6 +58,17 @@ pub fn main(init: std.process.Init) !void {
             verbose = true;
         } else if (std.mem.eql(u8, arg, "--cache")) {
             enable_cache = true;
+        } else if (std.mem.eql(u8, arg, "--watch")) {
+            enable_watch = true;
+        } else if (std.mem.eql(u8, arg, "--json")) {
+            json_output = true;
+        } else if (std.mem.eql(u8, arg, "--rules")) {
+            i += 1;
+            if (i >= args.len) fatal("--rules requires value");
+            rules_filter = args[i];
+        } else if (std.mem.eql(u8, arg, "--list-rules")) {
+            printRuleList(io);
+            return;
         } else if (arg.len > 0 and arg[0] != '-') {
             try raw_paths.append(alloc, arg);
         } else {
@@ -68,8 +88,34 @@ pub fn main(init: std.process.Init) !void {
         return;
     }
 
+    if (enable_watch) {
+        var resolved_cfg_copy = readLinterConfig(config_path, io, alloc);
+        defer resolved_cfg_copy.deinit(alloc);
+        const lint_watcher = LintWatcher{
+            .cfg = resolved_cfg_copy,
+            .fix = fix,
+            .config_path = config_path,
+        };
+        try watch.watchFiles(paths, LintWatcher, &lint_watcher, io, alloc);
+        return;
+    }
+
     var resolved_cfg = readLinterConfig(config_path, io, alloc);
     defer resolved_cfg.deinit(alloc);
+
+    if (rules_filter) |filter| {
+        // Build a new override list with only the specified rules enabled
+        resolved_cfg.rule_overrides.clearRetainingCapacity();
+        var it = std.mem.splitScalar(u8, filter, ',');
+        while (it.next()) |rule_name| {
+            const trimmed = std.mem.trim(u8, rule_name, " \t");
+            if (trimmed.len == 0) continue;
+            try resolved_cfg.rule_overrides.append(alloc, .{
+                .code = try alloc.dupe(u8, trimmed),
+                .enabled = true,
+    });
+        }
+    }
 
     var cache_instance: ?cache.Cache = null;
     defer {
@@ -118,7 +164,11 @@ pub fn main(init: std.process.Init) !void {
                 if (verbose) std.debug.print("[cache] hit {s}\n", .{rel});
                 if (c.getCachedDiagnostics(rel)) |diags| {
                     for (diags) |diag| {
-                        printDiagnostic(diag);
+                        if (json_output) {
+                            printDiagnosticJson(diag);
+                        } else {
+                            printDiagnostic(diag, null);
+                        }
                         if (diag.severity == .err) had_errors = true;
                     }
                 }
@@ -151,7 +201,11 @@ pub fn main(init: std.process.Init) !void {
             if (verbose) std.debug.print("checked {s} {d}ms\n", .{ path, elapsed_ms });
 
             for (lint_result.result.diagnostics) |diag| {
-                printDiagnostic(diag);
+                if (json_output) {
+                    printDiagnosticJson(diag);
+                } else {
+                    printDiagnostic(diag, null);
+                }
                 if (diag.severity == .err) had_errors = true;
             }
         }
@@ -162,7 +216,9 @@ pub fn main(init: std.process.Init) !void {
                 continue;
             };
             const mtime_ms = @as(f64, @floatFromInt(stat.mtime.nanoseconds)) / 1_000_000.0;
-            c.update(rel, mtime_ms, stat.size, lint_result.result.diagnostics) catch {};
+            c.update(rel, mtime_ms, stat.size, lint_result.result.diagnostics) catch |err| {
+                std.debug.print("warning: failed to update cache: {}\n", .{err});
+            };
         }
 
         alloc.free(rel);
@@ -170,7 +226,9 @@ pub fn main(init: std.process.Init) !void {
 
     if (cache_instance) |*c| {
         c.removeMissing(paths);
-        c.save() catch {};
+        c.save() catch |err| {
+            std.debug.print("warning: failed to save cache: {}\n", .{err});
+        };
         c.logStats();
     }
 
@@ -225,17 +283,149 @@ fn expandPaths(raw: []const []const u8, io: std.Io, alloc: std.mem.Allocator) ![
     return result.toOwnedSlice(alloc);
 }
 
-fn printDiagnostic(diag: linter.Diagnostic) void {
+fn printDiagnostic(diag: linter.Diagnostic, source: ?[]const u8) void {
     const sev = switch (diag.severity) {
-        .off => unreachable,
+        .off => "off",
         .err => "error",
         .warn => "warning",
         .info => "info",
     };
-    std.debug.print("{s}:{d}:{d}: {s} {s}: {s}\n", .{ diag.filename, diag.range.start.line, diag.range.start.column, sev, diag.rule_code, diag.message });
+    const color_code = switch (diag.severity) {
+        .err => "\x1b[31m",
+        .warn => "\x1b[33m",
+        .info => "\x1b[36m",
+        .off => "",
+    };
+    const reset = "\x1b[0m";
+    std.debug.print("{s}{s}{s}: {s}{s}:{d}:{d}{s}: {s}\n", .{
+        color_code, sev, reset,
+        reset, diag.filename, diag.range.start.line, diag.range.start.column, reset,
+        diag.message,
+    });
+    if (source) |src| {
+        const line_start = findLineStart(src, diag.range.start.index);
+        const line_end = findLineEnd(src, line_start);
+        const line = src[line_start..line_end];
+        std.debug.print("  {d} | {s}\n", .{ diag.range.start.line, line });
+        std.debug.print("    | ", .{});
+        var col: u32 = 1;
+        while (col < diag.range.start.column) : (col += 1) {
+            std.debug.print(" ", .{});
+        }
+        const len = if (diag.range.end.index > diag.range.start.index)
+            @as(u32, @intCast(diag.range.end.index - diag.range.start.index))
+        else
+            1;
+        var j: u32 = 0;
+        while (j < len) : (j += 1) {
+            std.debug.print("^", .{});
+        }
+        std.debug.print("\n", .{});
+    }
+}
+
+fn findLineStart(src: []const u8, pos: usize) usize {
+    if (pos == 0) return 0;
+    var i = pos;
+    while (i > 0) : (i -= 1) {
+        if (src[i - 1] == '\n') return i;
+    }
+    return 0;
+}
+
+fn findLineEnd(src: []const u8, start: usize) usize {
+    var i = start;
+    while (i < src.len) : (i += 1) {
+        if (src[i] == '\n') return i;
+    }
+    return src.len;
+}
+
+fn printDiagnosticJson(diag: linter.Diagnostic) void {
+    const sev = switch (diag.severity) {
+        .off => "off",
+        .err => "error",
+        .warn => "warning",
+        .info => "info",
+    };
+    std.debug.print(
+        \\{{"filename":"{s}","line":{d},"column":{d},"severity":"{s}","rule":"{s}","message":"{s}"}}
+        \\
+    , .{
+        diag.filename,
+        diag.range.start.line,
+        diag.range.start.column,
+        sev,
+        diag.rule_code,
+        diag.message,
+    });
 }
 
 fn fatal(msg: []const u8) noreturn {
     std.debug.print("error: {s}\n", .{msg});
     std.process.exit(1);
 }
+
+fn printRuleList(io: std.Io) void {
+    const rules = [_]struct { code: []const u8, sev: []const u8, desc: []const u8 }{
+        .{ .code = "no-debugger", .sev = "err", .desc = "disallow debugger statements" },
+        .{ .code = "no-alert", .sev = "err", .desc = "disallow alert, confirm, prompt" },
+        .{ .code = "no-console", .sev = "warn", .desc = "disallow console.log and friends" },
+        .{ .code = "no-eval", .sev = "err", .desc = "disallow eval()" },
+        .{ .code = "no-globals", .sev = "err", .desc = "disallow assignment to global variables" },
+        .{ .code = "no-new-native-nonconstructor", .sev = "err", .desc = "disallow new Symbol/new BigInt" },
+        .{ .code = "no-process-exit", .sev = "err", .desc = "disallow process.exit()" },
+        .{ .code = "no-iterator", .sev = "err", .desc = "disallow __iterator__ property" },
+        .{ .code = "no-restricted-globals", .sev = "err", .desc = "disallow specified global variables" },
+        .{ .code = "no-restricted-properties", .sev = "err", .desc = "disallow specified object properties" },
+        .{ .code = "no-template-curly-in-string", .sev = "err", .desc = "disallow template literal placeholder in strings" },
+        .{ .code = "no-self-compare", .sev = "err", .desc = "disallow comparisons where both sides are the same" },
+        .{ .code = "no-constant-condition", .sev = "err", .desc = "disallow constant expressions in conditions" },
+        .{ .code = "no-constant-binary-expression", .sev = "err", .desc = "disallow expressions that always evaluate to a constant" },
+        .{ .code = "no-empty", .sev = "err", .desc = "disallow empty block statements" },
+        .{ .code = "no-empty-character-class", .sev = "err", .desc = "disallow empty character classes in regex" },
+        .{ .code = "no-extra-semi", .sev = "err", .desc = "disallow unnecessary semicolons" },
+        .{ .code = "no-lone-blocks", .sev = "err", .desc = "disallow unnecessary nested blocks" },
+        .{ .code = "no-unsafe-finally", .sev = "err", .desc = "disallow control flow in finally blocks" },
+        .{ .code = "no-unused-vars", .sev = "warn", .desc = "disallow unused variables" },
+        .{ .code = "no-var", .sev = "err", .desc = "require let or const" },
+        .{ .code = "prefer-const", .sev = "warn", .desc = "require const for variables never reassigned" },
+        .{ .code = "eqeqeq", .sev = "err", .desc = "require === and !==" },
+        .{ .code = "no-dupe-keys", .sev = "err", .desc = "disallow duplicate keys in object literals" },
+        .{ .code = "no-case-declarations", .sev = "err", .desc = "disallow lexical declarations in case blocks" },
+        .{ .code = "no-async-promise-executor", .sev = "err", .desc = "disallow async Promise executor" },
+        .{ .code = "no-inner-declarations", .sev = "err", .desc = "disallow function/var declarations in nested blocks" },
+        .{ .code = "no-await-in-loop", .sev = "err", .desc = "disallow await inside loops" },
+        .{ .code = "no-promise-executor-return", .sev = "err", .desc = "disallow return in Promise executor" },
+        .{ .code = "preserve-caught-error", .sev = "err", .desc = "disallow overwriting caught error" },
+        .{ .code = "prefer-template", .sev = "warn", .desc = "require template literals over string concat" },
+        .{ .code = "no-constructor-return", .sev = "err", .desc = "disallow return value in class constructor" },
+    };
+    _ = io;
+    std.debug.print("{d} rules available:\n\n", .{rules.len});
+    for (rules) |r| {
+        const sev_color = if (std.mem.eql(u8, r.sev, "err")) "error" else "warn";
+        std.debug.print("  {s}  [{s}]  {s}\n", .{ r.code, sev_color, r.desc });
+    }
+}
+
+const LintWatcher = struct {
+    cfg: linter.Config,
+    fix: bool,
+    config_path: ?[]const u8,
+
+    pub fn onChange(self: *const LintWatcher, path: []const u8, io: std.Io, alloc: std.mem.Allocator) !void {
+        const result = cli.lintPath(path, .{
+            .fix = self.fix,
+            .config_path = self.config_path,
+            .config = self.cfg,
+        }, io, alloc) catch |err| {
+            std.debug.print("  error linting {s}: {}\n", .{ path, err });
+            return;
+        };
+        defer result.result.deinit(alloc);
+        for (result.result.diagnostics) |diag| {
+            printDiagnostic(diag, null);
+        }
+    }
+};

@@ -1,9 +1,8 @@
 const std = @import("std");
 const common = @import("common");
 const formatter = @import("formatter.zig");
-pub const ast = @import("ast.zig");
-pub const parser = @import("parser.zig");
-pub const lexer = @import("lexer.zig");
+const ast = @import("ast.zig");
+const parser = @import("parser.zig");
 const rules = @import("rules.zig");
 const json5 = @import("json5.zig");
 
@@ -34,10 +33,7 @@ pub const RuleOverride = struct {
 pub const FormatterConfig = struct {
     options: common.FormatterOptions = .{},
 
-    pub fn deinit(self: *FormatterConfig, alloc: std.mem.Allocator) void {
-        _ = self;
-        _ = alloc;
-    }
+    pub fn deinit(_: *FormatterConfig) void {}
 };
 
 pub const Config = struct {
@@ -143,8 +139,7 @@ fn applyRuleOverrides(registry: *Registry, overrides: std.ArrayListUnmanaged(Rul
     }
 }
 
-fn applyFormatterConfigToRules(registry: *Registry, opts: common.FormatterOptions, alloc: std.mem.Allocator) void {
-    _ = alloc;
+fn applyFormatterConfigToRules(registry: *Registry, opts: common.FormatterOptions) void {
     const Entry = struct { code: []const u8, option: common.RuleOptions };
     const entries = [_]Entry{
         .{ .code = "formatter/quotes", .option = .{ .bool_val = opts.singleQuote } },
@@ -169,32 +164,10 @@ fn applyFormatterConfigToRules(registry: *Registry, opts: common.FormatterOption
     }
 }
 
+/// Lint source code using a pre-configured rule registry.
+/// Returns Result with diagnostics and optional fixed source.
 pub fn lint(source: []const u8, filename: []const u8, registry: Registry, alloc: std.mem.Allocator) !Result {
     return lintWithEnv(source, filename, registry, .{}, alloc);
-}
-
-fn isAstScanRule(code: []const u8) bool {
-    const ast_rules = [_][]const u8{
-        "no-debugger", "no-alert", "no-eval", "no-empty", "no-compare-neg-zero",
-        "no-cond-assign", "no-constant-condition", "no-control-regex", "no-delete-var",
-        "no-dupe-keys", "no-duplicate-case", "no-empty-pattern", "no-ex-assign",
-        "no-extra-boolean-cast", "no-func-assign", "no-global-assign",
-        "no-new-native-nonconstructor", "no-nonoctal-decimal-escape", "no-obj-calls",
-        "no-octal", "no-prototype-builtins", "no-self-assign", "no-sparse-arrays",
-        "no-unsafe-negation", "no-unsafe-optional-chaining", "no-useless-catch",
-        "for-direction", "use-isnan", "valid-typeof", "no-const-assign",
-        "no-class-assign", "no-dupe-args", "no-dupe-class-members", "no-dupe-else-if",
-        "no-case-declarations", "no-async-promise-executor", "no-constant-binary-expression",
-        "no-import-assign", "no-shadow-restricted-names", "no-unreachable",
-        "no-unsafe-finally", "no-var", "prefer-template", "require-yield",
-        "no-inner-declarations", "no-empty-static-block", "no-self-compare",
-        "no-template-curly-in-string", "no-await-in-loop", "no-promise-executor-return",
-        "no-undef", "no-unused-vars", "no-fallthrough", "preserve-caught-error",
-    };
-    for (ast_rules) |r| {
-        if (std.mem.eql(u8, code, r)) return true;
-    }
-    return false;
 }
 
 fn lintWithEnv(source: []const u8, filename: []const u8, registry: Registry, env: Env, alloc: std.mem.Allocator) !Result {
@@ -225,27 +198,75 @@ fn lintWithEnv(source: []const u8, filename: []const u8, registry: Registry, env
         fixes.deinit(alloc);
     }
 
-    const ctx: common.LintContext = .{
-        .source = source,
-        .filename = filename,
-        .env = env,
-        .alloc = alloc,
-        .diagnostics = &diagnostics,
-        .fixes = &fixes,
-        .ast_arena = @ptrCast(&node_arena),
-        .ast_program_id = if (program_id) |pid| @as(u32, pid) else null,
-    };
+    const builtin_visitors = rules.buildVisitors();
+
+    var active_visitors = std.ArrayListUnmanaged(rules.RuleVisitor).empty;
+    defer active_visitors.deinit(alloc);
 
     if (program_id != null) {
-        try rules.runSinglePass(ctx, registry.rules.items);
+        for (registry.rules.items) |rule| {
+            if (rule.severity == .off) continue;
+            for (builtin_visitors) |v| {
+                if (std.mem.eql(u8, rule.code, v.rule.code)) {
+                    var adapted = v;
+                    adapted.rule = rule;
+                    try active_visitors.append(alloc, adapted);
+                    break;
+                }
+            }
+        }
+    }
+
+    if (active_visitors.items.len > 0) {
+        try rules.scanAllNodes(.{
+            .source = source,
+            .filename = filename,
+            .env = env,
+            .alloc = alloc,
+            .diagnostics = &diagnostics,
+            .fixes = &fixes,
+            .ast_arena = @ptrCast(&node_arena),
+            .ast_program_id = @as(u32, program_id.?),
+        }, active_visitors.items);
     }
 
     for (registry.rules.items) |rule| {
         if (rule.severity == .off) continue;
-        if (isAstScanRule(rule.code)) continue;
-        try rule.run(ctx, rule);
+
+        var already_visited = false;
+        for (builtin_visitors) |v| {
+            if (std.mem.eql(u8, rule.code, v.rule.code)) {
+                already_visited = true;
+                break;
+            }
+        }
+        if (already_visited) continue;
+
+        try rule.run(.{
+            .source = source,
+            .filename = filename,
+            .env = env,
+            .alloc = alloc,
+            .diagnostics = &diagnostics,
+            .fixes = &fixes,
+            .ast_arena = if (program_id != null) @ptrCast(&node_arena) else null,
+            .ast_program_id = if (program_id) |pid| @as(u32, pid) else null,
+        }, rule);
+    }
+
+    for (registry.rules.items) |rule| {
         if (rule.fix) |fix_fn| {
-            try fix_fn(ctx, rule);
+            if (rule.severity == .off) continue;
+            try fix_fn(.{
+                .source = source,
+                .filename = filename,
+                .env = env,
+                .alloc = alloc,
+                .diagnostics = &diagnostics,
+                .fixes = &fixes,
+                .ast_arena = if (program_id != null) @ptrCast(&node_arena) else null,
+                .ast_program_id = if (program_id) |pid| @as(u32, pid) else null,
+            }, rule);
         }
     }
 
@@ -253,29 +274,31 @@ fn lintWithEnv(source: []const u8, filename: []const u8, registry: Registry, env
     if (fixes.items.len > 0) {
         std.sort.insertion(common.LintFix, fixes.items, {}, struct {
             fn lessThan(_: void, lhs: common.LintFix, rhs: common.LintFix) bool {
-                return lhs.start > rhs.start;
+                return lhs.start < rhs.start;
             }
         }.lessThan);
 
-        var result = try alloc.alloc(u8, source.len);
-        @memcpy(result, source);
-
-        var result_owned = true;
-        defer if (result_owned) alloc.free(result);
-
+        var total_len: usize = source.len;
         for (fixes.items) |f| {
-            const new_len = result.len - (f.end - f.start) + f.replacement.len;
-            var new_result = try alloc.alloc(u8, new_len);
-            @memcpy(new_result[0..f.start], result[0..f.start]);
-            @memcpy(new_result[f.start..][0..f.replacement.len], f.replacement);
-            if (f.end < result.len) {
-                @memcpy(new_result[f.start + f.replacement.len ..], result[f.end..]);
-            }
-            alloc.free(result);
-            result = new_result;
+            total_len = total_len - (f.end - f.start) + f.replacement.len;
         }
 
-        result_owned = false;
+        var result = try alloc.alloc(u8, total_len);
+        var dst: usize = 0;
+        var src: usize = 0;
+
+        for (fixes.items) |f| {
+            const before_len = f.start - src;
+            @memcpy(result[dst..][0..before_len], source[src..][0..before_len]);
+            dst += before_len;
+            @memcpy(result[dst..][0..f.replacement.len], f.replacement);
+            dst += f.replacement.len;
+            src = f.end;
+        }
+        if (src < source.len) {
+            @memcpy(result[dst..], source[src..]);
+        }
+
         fixed_source = result;
 
         for (fixes.items) |f| alloc.free(f.replacement);
@@ -298,6 +321,7 @@ pub fn lintAndFormat(source: []const u8, filename: []const u8, registry: Registr
     return result;
 }
 
+/// Lint source code using the built-in default rule set. Quick entry point.
 pub fn lintWithDefaultRules(source: []const u8, filename: []const u8, alloc: std.mem.Allocator) !Result {
     var registry = Registry{};
     defer registry.deinit(alloc);
@@ -305,16 +329,18 @@ pub fn lintWithDefaultRules(source: []const u8, filename: []const u8, alloc: std
     return lint(source, filename, registry, alloc);
 }
 
+/// Lint source code with a custom Config (env, rules, formatter options).
 pub fn lintWithConfig(source: []const u8, filename: []const u8, cfg: Config, alloc: std.mem.Allocator) !Result {
     var registry = Registry{};
     defer registry.deinit(alloc);
     try registerDefaultRules(&registry, alloc);
 
-    applyFormatterConfigToRules(&registry, cfg.formatter.options, alloc);
+    applyFormatterConfigToRules(&registry, cfg.formatter.options);
     applyRuleOverrides(&registry, cfg.rule_overrides, alloc);
     return lintAndFormat(source, filename, registry, cfg, alloc);
 }
 
+/// Lint source with custom third-party plugins. Plugins can add rules and formatters.
 pub fn lintWithPlugins(source: []const u8, filename: []const u8, plugins: []const common.Plugin, alloc: std.mem.Allocator) !Result {
     var registry = Registry{};
     defer registry.deinit(alloc);
@@ -323,13 +349,14 @@ pub fn lintWithPlugins(source: []const u8, filename: []const u8, plugins: []cons
     return lint(source, filename, registry, alloc);
 }
 
+/// Full linter: plugins + config + default rules combined.
 pub fn lintWithPluginsAndConfig(source: []const u8, filename: []const u8, plugins: []const common.Plugin, cfg: Config, alloc: std.mem.Allocator) !Result {
     var registry = Registry{};
     defer registry.deinit(alloc);
     try registerDefaultRules(&registry, alloc);
     for (plugins) |plugin| try registry.registerPlugin(alloc, plugin);
 
-    applyFormatterConfigToRules(&registry, cfg.formatter.options, alloc);
+    applyFormatterConfigToRules(&registry, cfg.formatter.options);
     applyRuleOverrides(&registry, cfg.rule_overrides, alloc);
     return lintAndFormat(source, filename, registry, cfg, alloc);
 }
@@ -415,7 +442,7 @@ fn parseSeverity(s: []const u8) ?Severity {
 }
 
 pub fn parseConfig(source: []const u8, alloc: std.mem.Allocator) !Config {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    var arena = std.heap.ArenaAllocator.init(alloc);
     defer arena.deinit();
     const a = arena.allocator();
 
@@ -429,7 +456,7 @@ pub fn parseConfig(source: []const u8, alloc: std.mem.Allocator) !Config {
 }
 
 fn parseJsonConfig(json_str: []const u8, alloc: std.mem.Allocator) !Config {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    var arena = std.heap.ArenaAllocator.init(alloc);
     defer arena.deinit();
     const a = arena.allocator();
 

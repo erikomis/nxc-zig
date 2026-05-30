@@ -6,8 +6,8 @@ const Arena = ast.Arena;
 const NodeId = ast.NodeId;
 const Node = ast.Node;
 
-fn getArena(ctx: common.LintContext) *const Arena {
-    const ptr = ctx.ast_arena orelse @panic("getArena: ast_arena is null");
+fn getArena(ctx: common.LintContext) error{MissingArena}!*const Arena {
+    const ptr = ctx.ast_arena orelse return error.MissingArena;
     return @ptrCast(@alignCast(ptr));
 }
 
@@ -91,80 +91,29 @@ fn nodesEqual(arena: *const Arena, a: NodeId, b: NodeId) bool {
 }
 
 fn scanNodes(ctx: common.LintContext, rule: common.LintRule, comptime visit: fn (*const Arena, NodeId, *const Node, common.LintContext, common.LintRule) anyerror!void) !void {
-    const a = getArena(ctx);
+    const a = try getArena(ctx);
     for (a.nodes.items, 0..) |*node, i| {
         try visit(a, @intCast(i), node, ctx, rule);
     }
 }
 
-pub fn runSinglePass(ctx: common.LintContext, rules: []const common.LintRule) !void {
-    const a = getArena(ctx);
+pub const RuleVisitor = struct {
+    rule: common.LintRule,
+    visit: *const fn (*const Arena, NodeId, *const Node, common.LintContext, common.LintRule) anyerror!void,
+};
+
+pub fn scanAllNodes(ctx: common.LintContext, visitors: []const RuleVisitor) !void {
+    const a = try getArena(ctx);
     for (a.nodes.items, 0..) |*node, i| {
-        const node_id: NodeId = @intCast(i);
-        for (rules) |rule| {
-            if (rule.severity == .off) continue;
-            if (std.mem.eql(u8, rule.code, "no-debugger")) try runNoDebugger(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-alert")) try runNoAlert(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-eval")) try runNoEval(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-empty")) try runNoEmpty(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-compare-neg-zero")) try runNoCompareNegZero(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-constant-condition")) try runNoConstantCondition(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-control-regex")) try runNoControlRegex(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-delete-var")) try runNoDeleteVar(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-dupe-keys")) try runNoDupeKeys(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-duplicate-case")) try runNoDuplicateCase(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-empty-pattern")) try runNoEmptyPattern(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-extra-boolean-cast")) try runNoExtraBooleanCast(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-new-native-nonconstructor")) try runNoNewNativeNonconstructor(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-nonoctal-decimal-escape")) try runNoNonoctalDecimalEscape(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-obj-calls")) try runNoObjCalls(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-octal")) try runNoOctal(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-prototype-builtins")) try runNoPrototypeBuiltins(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-self-assign")) try runNoSelfAssign(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-sparse-arrays")) try runNoSparseArrays(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-unsafe-negation")) try runNoUnsafeNegation(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-unsafe-optional-chaining")) try runNoUnsafeOptionalChaining(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-useless-catch")) try runNoUselessCatch(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "for-direction")) try runForDirection(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "use-isnan")) try runUseIsNaN(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "valid-typeof")) try runValidTypeof(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-dupe-args")) try runNoDupeArgs(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-dupe-class-members")) try runNoDupeClassMembers(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-dupe-else-if")) try runNoDupeElseIf(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-case-declarations")) try runNoCaseDeclarations(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-async-promise-executor")) try runNoAsyncPromiseExecutor(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-constant-binary-expression")) try runNoConstantBinaryExpression(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-shadow-restricted-names")) try runNoShadowRestrictedNames(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-unreachable")) try runNoUnreachable(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-unsafe-finally")) try runNoUnsafeFinally(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-var")) try runNoVar(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "prefer-template")) try runPreferTemplate(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "require-yield")) try runRequireYield(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-inner-declarations")) try runNoInnerDeclarations(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-empty-static-block")) try runNoEmptyStaticBlock(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-self-compare")) try runNoSelfCompare(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-template-curly-in-string")) try runNoTemplateCurlyInString(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-await-in-loop")) try runNoAwaitInLoop(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-promise-executor-return")) try runNoPromiseExecutorReturn(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-undef")) try runNoUndef(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-unused-vars")) try runNoUnusedVars(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-fallthrough")) try runNoFallthrough(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-cond-assign")) try runNoCondAssign(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-ex-assign")) try runNoExAssign(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-func-assign")) try runNoFuncAssign(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-global-assign")) try runNoGlobals(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-const-assign")) try runNoConstAssign(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-class-assign")) try runNoClassAssign(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "no-import-assign")) try runNoImportAssign(a, node_id, node, ctx, rule)
-            else if (std.mem.eql(u8, rule.code, "preserve-caught-error")) try runPreserveCaughtError(a, node_id, node, ctx, rule);
+        for (visitors) |v| {
+            try v.visit(a, @intCast(i), node, ctx, v.rule);
         }
     }
 }
 
 // ── Rule implementations ──
 
-fn runNoDebugger(arena: *const Arena, _: NodeId, node: *const Node, ctx: common.LintContext, rule: common.LintRule) !void {
-    _ = arena;
+fn runNoDebugger(_: *const Arena, _: NodeId, node: *const Node, ctx: common.LintContext, rule: common.LintRule) !void {
     if (node.* == .debugger_stmt) {
         try reportNode(ctx, rule, "unexpected debugger statement", node);
     }
@@ -350,7 +299,7 @@ fn runNoFuncAssign(arena: *const Arena, _: NodeId, node: *const Node, ctx: commo
 
 fn runNoGlobals(_: *const Arena, _: NodeId, node: *const Node, ctx: common.LintContext, rule: common.LintRule) !void {
     if (node.* != .assign_expr) return;
-    const arena = getArena(ctx);
+    const arena = try getArena(ctx);
     const left = arena.get(node.assign_expr.left);
     if (left.* == .member_expr) return;
     if (left.* != .ident) return;
@@ -938,8 +887,22 @@ fn envSupports(env: common.LintEnvironment, name: []const u8) bool {
             if (std.mem.eql(u8, name, g)) return true;
         }
     }
-    _ = env.deno;
-    _ = env.bun;
+    if (env.deno) {
+        const deno_globals = [_][]const u8{
+            "Deno",
+        };
+        for (deno_globals) |g| {
+            if (std.mem.eql(u8, name, g)) return true;
+        }
+    }
+    if (env.bun) {
+        const bun_globals = [_][]const u8{
+            "Bun",
+        };
+        for (bun_globals) |g| {
+            if (std.mem.eql(u8, name, g)) return true;
+        }
+    }
     return false;
 }
 
@@ -1110,14 +1073,13 @@ fn runPreferTemplate(arena: *const Arena, _: NodeId, node: *const Node, ctx: com
     try reportNode(ctx, rule, "use template literals instead of string concatenation", node);
 }
 
-fn fixPreferTemplate(arena: *const Arena, _: NodeId, node: *const Node, ctx: common.LintContext, rule: common.LintRule) !void {
+fn fixPreferTemplate(arena: *const Arena, _: NodeId, node: *const Node, ctx: common.LintContext, _: common.LintRule) !void {
     if (node.* != .binary_expr) return;
     if (node.binary_expr.op != .plus) return;
     const left = arena.get(node.binary_expr.left);
     const right = arena.get(node.binary_expr.right);
     if (left.* == .str_lit and right.* == .str_lit) return;
     if (left.* != .str_lit and right.* != .str_lit) return;
-    _ = rule;
 
     const sp = node.span();
     const source = ctx.source;
@@ -1144,11 +1106,15 @@ fn fixPreferTemplate(arena: *const Arena, _: NodeId, node: *const Node, ctx: com
         offset += p.len;
     }
 
-    try ctx.fixes.append(ctx.alloc, .{
-        .start = sp.start,
-        .end = sp.end,
-        .replacement = replacement,
-    });
+    if (ctx.fixes) |fixes| {
+        try fixes.append(ctx.alloc, .{
+            .start = sp.start,
+            .end = sp.end,
+            .replacement = replacement,
+        });
+    } else {
+        ctx.alloc.free(replacement);
+    }
 }
 
 fn collectTemplateParts(arena: *const Arena, node_id: NodeId, source: []const u8, parts: *std.ArrayListUnmanaged([]const u8), alloc: std.mem.Allocator) !void {
@@ -1172,6 +1138,25 @@ fn collectTemplateParts(arena: *const Arena, node_id: NodeId, source: []const u8
         @memcpy(wrapped[prefix.len..][0..expr.len], expr);
         @memcpy(wrapped[prefix.len + expr.len ..], suffix);
         try parts.append(alloc, wrapped);
+    }
+}
+
+fn runNoConstructorReturn(arena: *const Arena, _: NodeId, node: *const Node, ctx: common.LintContext, rule: common.LintRule) !void {
+    if (node.* != .class_decl) return;
+    for (node.class_decl.body) |m| {
+        if (m.kind == .constructor) {
+            if (m.value) |body_id| {
+                const body = arena.get(body_id);
+                if (body.* == .block) {
+                    for (body.block.body) |stmt_id| {
+                        const stmt = arena.get(stmt_id);
+                        if (stmt.* == .return_stmt and stmt.return_stmt.argument != null) {
+                            try reportNode(ctx, rule, "unexpected return value in constructor", stmt);
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1442,17 +1427,88 @@ pub fn registerAll(registry: anytype, alloc: std.mem.Allocator) !void {
                 try scanNodes(ctx, rule, runNoVar);
             }
         }.call },
- .{ .code = "prefer-template", .severity = .warn, .run = struct {
-        fn call(ctx: common.LintContext, rule: common.LintRule) anyerror!void {
-            try scanNodes(ctx, rule, runPreferTemplate);
-        }
-    }.call, .fix = struct {
-        fn call(ctx: common.LintContext, rule: common.LintRule) anyerror!void {
-            try scanNodes(ctx, rule, fixPreferTemplate);
-        }
-    }.call },
+        .{ .code = "prefer-template", .severity = .warn, .run = struct {
+            fn call(ctx: common.LintContext, rule: common.LintRule) anyerror!void {
+                try scanNodes(ctx, rule, runPreferTemplate);
+            }
+        }.call, .fix = struct {
+            fn call(ctx: common.LintContext, rule: common.LintRule) anyerror!void {
+                try scanNodes(ctx, rule, fixPreferTemplate);
+            }
+        }.call },
+        .{ .code = "no-constructor-return", .severity = .err, .run = struct {
+            fn call(ctx: common.LintContext, rule: common.LintRule) anyerror!void {
+                try scanNodes(ctx, rule, runNoConstructorReturn);
+            }
+        }.call },
     };
     for (rules) |rule| {
         try registry.register(alloc, rule);
     }
+}
+
+const Vfn = *const fn (*const Arena, NodeId, *const Node, common.LintContext, common.LintRule) anyerror!void;
+
+const dummy_run = struct {
+    fn call(_: common.LintContext, _: common.LintRule) anyerror!void {}
+}.call;
+
+pub fn buildVisitors() []const RuleVisitor {
+    return &[_]RuleVisitor{
+        .{ .rule = .{ .code = "no-debugger", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoDebugger)) },
+        .{ .rule = .{ .code = "no-alert", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoAlert)) },
+        .{ .rule = .{ .code = "no-eval", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoEval)) },
+        .{ .rule = .{ .code = "no-empty", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoEmpty)) },
+        .{ .rule = .{ .code = "no-compare-neg-zero", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoCompareNegZero)) },
+        .{ .rule = .{ .code = "no-cond-assign", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoCondAssign)) },
+        .{ .rule = .{ .code = "no-constant-condition", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoConstantCondition)) },
+        .{ .rule = .{ .code = "no-control-regex", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoControlRegex)) },
+        .{ .rule = .{ .code = "no-delete-var", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoDeleteVar)) },
+        .{ .rule = .{ .code = "no-dupe-keys", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoDupeKeys)) },
+        .{ .rule = .{ .code = "no-duplicate-case", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoDuplicateCase)) },
+        .{ .rule = .{ .code = "no-empty-pattern", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoEmptyPattern)) },
+        .{ .rule = .{ .code = "no-ex-assign", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoExAssign)) },
+        .{ .rule = .{ .code = "no-extra-boolean-cast", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoExtraBooleanCast)) },
+        .{ .rule = .{ .code = "no-func-assign", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoFuncAssign)) },
+        .{ .rule = .{ .code = "no-global-assign", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoGlobals)) },
+        .{ .rule = .{ .code = "no-new-native-nonconstructor", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoNewNativeNonconstructor)) },
+        .{ .rule = .{ .code = "no-nonoctal-decimal-escape", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoNonoctalDecimalEscape)) },
+        .{ .rule = .{ .code = "no-obj-calls", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoObjCalls)) },
+        .{ .rule = .{ .code = "no-octal", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoOctal)) },
+        .{ .rule = .{ .code = "no-prototype-builtins", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoPrototypeBuiltins)) },
+        .{ .rule = .{ .code = "no-self-assign", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoSelfAssign)) },
+        .{ .rule = .{ .code = "no-sparse-arrays", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoSparseArrays)) },
+        .{ .rule = .{ .code = "no-unsafe-negation", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoUnsafeNegation)) },
+        .{ .rule = .{ .code = "no-unsafe-optional-chaining", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoUnsafeOptionalChaining)) },
+        .{ .rule = .{ .code = "no-useless-catch", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoUselessCatch)) },
+        .{ .rule = .{ .code = "for-direction", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runForDirection)) },
+        .{ .rule = .{ .code = "use-isnan", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runUseIsNaN)) },
+        .{ .rule = .{ .code = "valid-typeof", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runValidTypeof)) },
+        .{ .rule = .{ .code = "no-const-assign", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoConstAssign)) },
+        .{ .rule = .{ .code = "no-class-assign", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoClassAssign)) },
+        .{ .rule = .{ .code = "no-dupe-args", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoDupeArgs)) },
+        .{ .rule = .{ .code = "no-dupe-class-members", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoDupeClassMembers)) },
+        .{ .rule = .{ .code = "no-dupe-else-if", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoDupeElseIf)) },
+        .{ .rule = .{ .code = "no-case-declarations", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoCaseDeclarations)) },
+        .{ .rule = .{ .code = "no-async-promise-executor", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoAsyncPromiseExecutor)) },
+        .{ .rule = .{ .code = "no-constant-binary-expression", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoConstantBinaryExpression)) },
+        .{ .rule = .{ .code = "no-import-assign", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoImportAssign)) },
+        .{ .rule = .{ .code = "no-shadow-restricted-names", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoShadowRestrictedNames)) },
+        .{ .rule = .{ .code = "no-unreachable", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoUnreachable)) },
+        .{ .rule = .{ .code = "no-unsafe-finally", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoUnsafeFinally)) },
+        .{ .rule = .{ .code = "no-unused-vars", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoUnusedVars)) },
+        .{ .rule = .{ .code = "no-undef", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoUndef)) },
+        .{ .rule = .{ .code = "require-yield", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runRequireYield)) },
+        .{ .rule = .{ .code = "no-fallthrough", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoFallthrough)) },
+        .{ .rule = .{ .code = "no-empty-static-block", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoEmptyStaticBlock)) },
+        .{ .rule = .{ .code = "no-self-compare", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoSelfCompare)) },
+        .{ .rule = .{ .code = "no-template-curly-in-string", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoTemplateCurlyInString)) },
+        .{ .rule = .{ .code = "no-await-in-loop", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoAwaitInLoop)) },
+        .{ .rule = .{ .code = "no-promise-executor-return", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoPromiseExecutorReturn)) },
+        .{ .rule = .{ .code = "no-inner-declarations", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoInnerDeclarations)) },
+        .{ .rule = .{ .code = "preserve-caught-error", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runPreserveCaughtError)) },
+        .{ .rule = .{ .code = "no-var", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoVar)) },
+        .{ .rule = .{ .code = "prefer-template", .severity = .warn, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runPreferTemplate)) },
+        .{ .rule = .{ .code = "no-constructor-return", .severity = .err, .run = dummy_run }, .visit = @as(Vfn, @ptrCast(&runNoConstructorReturn)) },
+    };
 }

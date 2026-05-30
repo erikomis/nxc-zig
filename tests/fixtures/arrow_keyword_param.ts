@@ -1,7 +1,12 @@
-type OptionsSchema = object;
+type OptionsSchema = {
+  from: string;
+};
 
-type ParsedOptions = object;
+type ParsedOptions = {
+  from: string;
+};
 
-export const transform = (from: OptionsSchema) => {
+export const transform = (from: OptionsSchema): ParsedOptions => {
   return from;
 };
+

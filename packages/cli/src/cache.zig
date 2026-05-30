@@ -122,12 +122,16 @@ pub const Cache = struct {
         try self.writeJson(&buf);
 
         const dir = std.fs.path.dirname(self.path) orelse ".";
-        std.Io.Dir.cwd().createDirPath(self.io, dir) catch {};
+        std.Io.Dir.cwd().createDirPath(self.io, dir) catch |err| {
+            std.log.warn("cache: failed to create dir: {}", .{err});
+        };
 
         std.Io.Dir.cwd().writeFile(self.io, .{
             .sub_path = self.path,
             .data = buf.items,
-        }) catch {};
+        }) catch |err| {
+            std.log.warn("cache: failed to write cache file: {}", .{err});
+        };
 
         self.dirty = false;
     }

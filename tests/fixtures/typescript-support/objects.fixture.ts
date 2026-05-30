@@ -19,3 +19,4 @@ export function fromPairs<V>(pairs: [string, V][]): Record<string, V> {
 // array spread with conditional
 const base = ["a", "b"];
 export const extended = [...base, ...(Math.random() > 0.5 ? ["c"] : [])];
+

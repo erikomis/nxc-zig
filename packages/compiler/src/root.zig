@@ -10,12 +10,16 @@ pub const Config = compiler_core.Config;
 pub const PathAlias = compiler_core.PathAlias;
 pub const CompileResult = compiler_core.CompileResult;
 pub const config = compiler_core.config;
+pub const findTsConfig = compiler_core.config.findTsConfig;
+pub const resolveConfigFiles = compiler_core.config.resolveConfigFiles;
 pub const compile = compiler_core.compile;
 pub const compileFile = compiler_core.compileFile;
 pub const declarationPathFromJsPath = compiler_core.declarationPathFromJsPath;
 pub const dupeDiags = compiler_core.dupeDiags;
 pub const writeCompileResultFiles = compiler_core.writeCompileResultFiles;
 
+/// Result of parsing TypeScript source. Contains the arena allocator,
+/// AST node arena, optional program root node, and diagnostics.
 pub const ParseResult = struct {
     arena_backing: std.heap.ArenaAllocator,
     node_arena: ast.Arena,
@@ -33,6 +37,7 @@ pub const ParseResult = struct {
     }
 };
 
+/// Parse TypeScript/JSX source into an AST. Returns diagnostics on error.
 pub fn parse(source: []const u8, filename: []const u8, cfg: Config, alloc: std.mem.Allocator) !ParseResult {
     var arena_backing = std.heap.ArenaAllocator.init(alloc);
     errdefer arena_backing.deinit();
@@ -61,10 +66,13 @@ pub fn parse(source: []const u8, filename: []const u8, cfg: Config, alloc: std.m
     };
 }
 
+/// Compile TypeScript/JSX source to JavaScript, including all transforms.
+/// Returns CompileResult with code, optional source map, and optional .d.ts output.
 pub fn transform(source: []const u8, filename: []const u8, cfg: Config, io: std.Io, alloc: std.mem.Allocator) !CompileResult {
     return compile(source, filename, cfg, io, alloc);
 }
 
+/// Apply transforms to an already-parsed AST (type stripping, JSX, decorators, etc.).
 pub fn transformParsed(result: *ParseResult, filename: []const u8, cfg: Config, io: std.Io, alloc: std.mem.Allocator) !void {
     const program_id = result.program_id orelse return error.ParseError;
     try pipeline.run(&result.node_arena, result.arena_backing.allocator(), io, .{
@@ -92,6 +100,7 @@ pub fn transformParsed(result: *ParseResult, filename: []const u8, cfg: Config, 
         },
         .remove_comments = cfg.remove_comments,
         .target = switch (cfg.target) {
+            .es2015, .es2016, .es2017, .es2018, .es2019 => .es2015,
             .es2020 => .es2020,
             .es2022 => .es2022,
             .es2024 => .es2024,

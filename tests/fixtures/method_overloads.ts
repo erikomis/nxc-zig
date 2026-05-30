@@ -1,16 +1,18 @@
 // Class method overloads
 class Resolver {
-  resolve(): string;
-  resolve(x: number): string;
-  resolve(value?: string | number): string {
-    return String(value);
+  resolve(value: string): string;
+  resolve(value: number): number;
+  resolve(value: string | number): string | number {
+    return value;
   }
 
-  static create(): Resolver;
+  static create(id: string): Resolver;
   static create(id: number): Resolver;
-  static create(id?: number): Resolver {
+  static create(id: string | number): Resolver {
     return new Resolver();
   }
+
+  get name(): string;
 
   get name(): string {
     return "resolver";
@@ -19,11 +21,10 @@ class Resolver {
 
 // Constructor overloads
 class Point {
-  x: number = 0;
-  y: number = 0;
-  constructor(): void;
-  constructor(x: number, y: number): void;
-  constructor(xOrCoords?: number, y?: number) {
+  constructor(x: number, y: number);
+  constructor(coords: [number, number]);
+  constructor(xOrCoords: number | [number, number], y?: number) {
+
     // implementation
   }
 }
@@ -31,12 +32,15 @@ class Point {
 // Interface (should be fully stripped)
 interface Formatter {
   format(value: string): string;
+  format(value: number): string;
+
 }
 
 // Standalone function overloads
 function parse(value: string): string[];
 function parse(value: number): number[];
-function parse(value: string | number): (string | number)[] {
+function parse(value: string | number) {
+
   return [value];
 }
 

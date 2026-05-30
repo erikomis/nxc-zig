@@ -1,7 +1,16 @@
 type RouteSchemaOptions = Record<string, unknown>;
 
+declare const openapiMetadata: RouteSchemaOptions | undefined;
+declare const validator:
+  | {
+      source: string;
+      schema: unknown;
+    }
+  | undefined;
+
 const routeOptions: RouteSchemaOptions | undefined = (() => {
-  const options: RouteSchemaOptions = { ...openapiMetadata ?? {} };
+  const options: RouteSchemaOptions = { ...(openapiMetadata ?? {}) };
+
 
   if (validator) {
     options[validator.source] = validator.schema;
@@ -9,7 +18,6 @@ const routeOptions: RouteSchemaOptions | undefined = (() => {
 
   return Object.keys(options).length > 0 ? options : undefined;
 })();
-
 
 
 const a = (() => 123)();
@@ -24,12 +32,14 @@ const c = (async () => {
 
 const d = ((x: number) => x * 2)(10);
 
-const e = (({ x }: object) => x)({ x: 1 });
+const e = (({ x }: { x: number }) => x)({ x: 1 });
+
 
 const f = (() => ({ value: 1 }))();
 
 const g = (() => {
-  const obj = { ...openapiMetadata ?? {} };
+  const obj = { ...(openapiMetadata ?? {}) };
+
   return obj;
 })();
 
@@ -39,8 +49,9 @@ const h = (() => {
 
 const i = 1 + (() => 2)();
 
-function call(fn: any) {
+function call(fn: () => number) {
   return fn();
 }
 
-const j = call(() => 42);
+const j = call((() => 42));
+

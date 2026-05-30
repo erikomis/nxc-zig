@@ -1,3 +1,5 @@
+// SYNC: Keep in sync with packages/linter/src/lexer.zig
+// These two copies are identical. Any bug fix must be mirrored in both.
 const std = @import("std");
 const tok = @import("token.zig");
 pub const Token = tok.Token;
@@ -12,57 +14,6 @@ pub const LexerMode = enum {
     type_pos,
 };
 
-const CHAR_DIGIT: u8 = 1 << 0;
-const CHAR_ALPHA: u8 = 1 << 1;
-const CHAR_HEX: u8 = 1 << 2;
-const CHAR_IDENT_START: u8 = 1 << 3;
-const CHAR_IDENT_CONT: u8 = 1 << 4;
-const CHAR_WHITESPACE: u8 = 1 << 5;
-
-const char_table: [256]u8 = blk: {
-    @setEvalBranchQuota(10000);
-    var table: [256]u8 = [_]u8{0} ** 256;
-    var i: usize = 0;
-    while (i < 256) : (i += 1) {
-        const c: u8 = @intCast(i);
-        var flags: u8 = 0;
-        if (c >= '0' and c <= '9') {
-            flags |= CHAR_DIGIT | CHAR_HEX | CHAR_IDENT_CONT;
-        }
-        if ((c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z')) {
-            flags |= CHAR_ALPHA | CHAR_HEX | CHAR_IDENT_START | CHAR_IDENT_CONT;
-        }
-        if (c == '_' or c == '$') {
-            flags |= CHAR_IDENT_START | CHAR_IDENT_CONT;
-        }
-        if (c == ' ' or c == '\t' or c == '\r' or c == '\n') {
-            flags |= CHAR_WHITESPACE;
-        }
-        table[i] = flags;
-    }
-    break :blk table;
-};
-
-inline fn isIdentStart(c: u8) bool {
-    return (char_table[c] & CHAR_IDENT_START) != 0 or c > 127;
-}
-
-inline fn isIdentCont(c: u8) bool {
-    return (char_table[c] & CHAR_IDENT_CONT) != 0 or c > 127;
-}
-
-inline fn isDigit(c: u8) bool {
-    return (char_table[c] & CHAR_DIGIT) != 0;
-}
-
-inline fn isHex(c: u8) bool {
-    return (char_table[c] & CHAR_HEX) != 0;
-}
-
-inline fn isAlpha(c: u8) bool {
-    return (char_table[c] & CHAR_ALPHA) != 0;
-}
-
 pub const Lexer = struct {
     pub const Comment = struct {
         raw: []const u8,
@@ -76,7 +27,8 @@ pub const Lexer = struct {
     mode: LexerMode,
     peeked: ?Token,
     last_kind: ?TokenKind,
-    template_stack: [16]u8 = [_]u8{0} ** 16,
+    // template literal depth tracking: each entry is the brace depth when we entered the ${
+    template_stack: [64]u8 = [_]u8{0} ** 64,
     template_depth: u8 = 0,
     brace_depth: u8 = 0,
     pending_comments: [32]Comment = undefined,
@@ -124,41 +76,6 @@ pub const Lexer = struct {
         return comments;
     }
 
-    pub const State = struct {
-        peeked: ?Token,
-        pos: u32,
-        line: u32,
-        line_start: u32,
-        template_stack: [16]u8,
-        template_depth: u8,
-        brace_depth: u8,
-        pending_comments_len: u8,
-    };
-
-    pub fn save(self: *const Lexer) State {
-        return .{
-            .peeked = self.peeked,
-            .pos = self.pos,
-            .line = self.line,
-            .line_start = self.line_start,
-            .template_stack = self.template_stack,
-            .template_depth = self.template_depth,
-            .brace_depth = self.brace_depth,
-            .pending_comments_len = self.pending_comments_len,
-        };
-    }
-
-    pub fn restore(self: *Lexer, state: State) void {
-        self.peeked = state.peeked;
-        self.pos = state.pos;
-        self.line = state.line;
-        self.line_start = state.line_start;
-        self.template_stack = state.template_stack;
-        self.template_depth = state.template_depth;
-        self.brace_depth = state.brace_depth;
-        self.pending_comments_len = state.pending_comments_len;
-    }
-
     fn col(self: *const Lexer) u32 {
         return self.pos - self.line_start + 1;
     }
@@ -170,12 +87,6 @@ pub const Lexer = struct {
             .line = start_line,
             .col = start_col,
         };
-    }
-
-    inline fn at(self: *const Lexer, offset: u32) u8 {
-        const idx = self.pos + offset;
-        if (idx >= self.src.len) return 0;
-        return self.src[idx];
     }
 
     fn cur(self: *const Lexer) u8 {
@@ -193,51 +104,50 @@ pub const Lexer = struct {
     }
 
     fn skipWhitespace(self: *Lexer) void {
-        const len = self.src.len;
-        while (self.pos < len) {
-            const c = self.src[self.pos];
-            if (c == ' ' or c == '\t' or c == '\r') {
-                self.pos += 1;
-                if (self.pos < len) {
-                    const c2 = self.src[self.pos];
-                    if (c2 == ' ' or c2 == '\t' or c2 == '\r') {
-                        self.pos += 1;
-                    }
-                }
-                continue;
+        while (self.pos < self.src.len) {
+            if (self.matchInvisibleWhitespace()) continue;
+            switch (self.src[self.pos]) {
+                ' ', '\t', '\r' => self.pos += 1,
+                '\n' => {
+                    self.pos += 1;
+                    self.line += 1;
+                    self.line_start = self.pos;
+                },
+                else => break,
             }
-            if (c == '\n') {
-                self.pos += 1;
-                self.line += 1;
-                self.line_start = self.pos;
-                continue;
-            }
-            if (c >= 0xE0 and self.pos + 2 < len) {
-                const b1 = self.src[self.pos + 1];
-                const b2 = self.src[self.pos + 2];
-                if (c == 0xEF and b1 == 0xBB and b2 == 0xBF) {
-                    self.pos += 3;
-                    continue;
-                }
-                if (c == 0xE2 and b1 == 0x80 and b2 == 0x8B) {
-                    self.pos += 3;
-                    continue;
-                }
-            }
-            break;
         }
     }
 
+    fn matchInvisibleWhitespace(self: *Lexer) bool {
+        if (self.pos + 2 < self.src.len) {
+            const b0 = self.src[self.pos];
+            const b1 = self.src[self.pos + 1];
+            const b2 = self.src[self.pos + 2];
+
+            // UTF-8 BOM / zero-width no-break space (U+FEFF).
+            if (b0 == 0xEF and b1 == 0xBB and b2 == 0xBF) {
+                self.pos += 3;
+                return true;
+            }
+
+            // Zero-width space (U+200B).
+            if (b0 == 0xE2 and b1 == 0x80 and b2 == 0x8B) {
+                self.pos += 3;
+                return true;
+            }
+        }
+        return false;
+    }
+
     fn skipLineComment(self: *Lexer) void {
-        const rest = self.src[self.pos..];
-        const nl = std.mem.indexOfScalar(u8, rest, '\n') orelse rest.len;
-        self.pos += @intCast(nl);
+        while (self.pos < self.src.len and self.src[self.pos] != '\n') {
+            self.pos += 1;
+        }
     }
 
     fn skipBlockComment(self: *Lexer) bool {
         self.pos += 2;
-        const len = self.src.len;
-        while (self.pos + 1 < len) {
+        while (self.pos + 1 < self.src.len) {
             if (self.src[self.pos] == '\n') {
                 self.line += 1;
                 self.line_start = self.pos + 1;
@@ -264,17 +174,16 @@ pub const Lexer = struct {
         const start = self.pos;
         const sl = self.line;
         const sc = self.col();
-        self.pos += 1;
-        const len = self.src.len;
+        self.advance();
         var closed = false;
-        while (self.pos < len) {
+        while (self.pos < self.src.len) {
             const c = self.src[self.pos];
             if (c == '\\') {
                 self.pos += 2;
                 continue;
             }
             if (c == '\n' or c == '\r') break;
-            self.pos += 1;
+            self.advance();
             if (c == quote) {
                 closed = true;
                 break;
@@ -299,11 +208,10 @@ pub const Lexer = struct {
         const start = self.pos;
         const sl = self.line;
         const sc = self.col();
-        self.pos += 1;
-        const len = self.src.len;
+        self.advance();
         var has_expr = false;
         var closed = false;
-        while (self.pos < len) {
+        while (self.pos < self.src.len) {
             const c = self.src[self.pos];
             if (c == '\\') {
                 self.pos += 2;
@@ -313,12 +221,12 @@ pub const Lexer = struct {
                 self.line += 1;
                 self.line_start = self.pos + 1;
             }
-            if (c == '$' and self.pos + 1 < len and self.src[self.pos + 1] == '{') {
+            if (c == '$' and self.peek1() == '{') {
                 self.pos += 2;
                 has_expr = true;
                 break;
             }
-            self.pos += 1;
+            self.advance();
             if (c == '`') {
                 closed = true;
                 break;
@@ -334,7 +242,8 @@ pub const Lexer = struct {
         }
         const kind: TokenKind = if (has_expr) .template_head else .template_no_sub;
         if (kind == .template_head) {
-            if (self.template_depth < 16) {
+            // push current brace depth so we know when ${...} closes
+            if (self.template_depth < 64) {
                 self.template_stack[self.template_depth] = self.brace_depth;
                 self.template_depth += 1;
             }
@@ -350,9 +259,9 @@ pub const Lexer = struct {
         const start = self.pos;
         const sl = self.line;
         const sc = self.col();
-        const len = self.src.len;
+        // starts after }
         var has_expr = false;
-        while (self.pos < len) {
+        while (self.pos < self.src.len) {
             const c = self.src[self.pos];
             if (c == '\\') {
                 self.pos += 2;
@@ -362,17 +271,17 @@ pub const Lexer = struct {
                 self.line += 1;
                 self.line_start = self.pos + 1;
             }
-            if (c == '$' and self.pos + 1 < len and self.src[self.pos + 1] == '{') {
+            if (c == '$' and self.peek1() == '{') {
                 self.pos += 2;
                 has_expr = true;
                 break;
             }
-            self.pos += 1;
+            self.advance();
             if (c == '`') break;
         }
         const kind: TokenKind = if (has_expr) .template_middle else .template_tail;
         if (kind == .template_middle) {
-            if (self.template_depth < 16) {
+            if (self.template_depth < 64) {
                 self.template_stack[self.template_depth] = self.brace_depth;
                 self.template_depth += 1;
             }
@@ -388,38 +297,28 @@ pub const Lexer = struct {
         const start = self.pos;
         const sl = self.line;
         const sc = self.col();
-        const len = self.src.len;
-        if (self.src[self.pos] == '0' and self.pos + 1 < len) {
-            const nc = self.src[self.pos + 1];
-            if (nc == 'x' or nc == 'X') {
-                self.pos += 2;
-                while (self.pos < len and isHex(self.src[self.pos])) self.pos += 1;
-                return .{ .kind = .number, .span = self.spanFrom(start, sl, sc), .raw = self.src[start..self.pos] };
+        if (self.cur() == '0' and (self.peek1() == 'x' or self.peek1() == 'X')) {
+            self.pos += 2;
+            while (self.pos < self.src.len and std.ascii.isHex(self.src[self.pos])) self.pos += 1;
+        } else if (self.cur() == '0' and (self.peek1() == 'b' or self.peek1() == 'B')) {
+            self.pos += 2;
+            while (self.pos < self.src.len and (self.src[self.pos] == '0' or self.src[self.pos] == '1')) self.pos += 1;
+        } else if (self.cur() == '0' and (self.peek1() == 'o' or self.peek1() == 'O')) {
+            self.pos += 2;
+            while (self.pos < self.src.len and self.src[self.pos] >= '0' and self.src[self.pos] <= '7') self.pos += 1;
+        } else {
+            while (self.pos < self.src.len and (std.ascii.isDigit(self.src[self.pos]) or self.src[self.pos] == '_')) self.pos += 1;
+            if (self.pos < self.src.len and self.src[self.pos] == '.') {
+                self.pos += 1;
+                while (self.pos < self.src.len and std.ascii.isDigit(self.src[self.pos])) self.pos += 1;
             }
-            if (nc == 'b' or nc == 'B') {
-                self.pos += 2;
-                while (self.pos < len and (self.src[self.pos] == '0' or self.src[self.pos] == '1')) self.pos += 1;
-                if (self.pos < len and self.src[self.pos] == 'n') self.pos += 1;
-                return .{ .kind = .number, .span = self.spanFrom(start, sl, sc), .raw = self.src[start..self.pos] };
-            }
-            if (nc == 'o' or nc == 'O') {
-                self.pos += 2;
-                while (self.pos < len and self.src[self.pos] >= '0' and self.src[self.pos] <= '7') self.pos += 1;
-                if (self.pos < len and self.src[self.pos] == 'n') self.pos += 1;
-                return .{ .kind = .number, .span = self.spanFrom(start, sl, sc), .raw = self.src[start..self.pos] };
+            if (self.pos < self.src.len and (self.src[self.pos] == 'e' or self.src[self.pos] == 'E')) {
+                self.pos += 1;
+                if (self.pos < self.src.len and (self.src[self.pos] == '+' or self.src[self.pos] == '-')) self.pos += 1;
+                while (self.pos < self.src.len and std.ascii.isDigit(self.src[self.pos])) self.pos += 1;
             }
         }
-        while (self.pos < len and (isDigit(self.src[self.pos]) or self.src[self.pos] == '_')) self.pos += 1;
-        if (self.pos < len and self.src[self.pos] == '.') {
-            self.pos += 1;
-            while (self.pos < len and isDigit(self.src[self.pos])) self.pos += 1;
-        }
-        if (self.pos < len and (self.src[self.pos] == 'e' or self.src[self.pos] == 'E')) {
-            self.pos += 1;
-            if (self.pos < len and (self.src[self.pos] == '+' or self.src[self.pos] == '-')) self.pos += 1;
-            while (self.pos < len and isDigit(self.src[self.pos])) self.pos += 1;
-        }
-        if (self.pos < len and self.src[self.pos] == 'n') self.pos += 1;
+        if (self.pos < self.src.len and self.src[self.pos] == 'n') self.pos += 1;
         return .{
             .kind = .number,
             .span = self.spanFrom(start, sl, sc),
@@ -431,10 +330,12 @@ pub const Lexer = struct {
         const start = self.pos;
         const sl = self.line;
         const sc = self.col();
-        self.pos += 1;
-        const len = self.src.len;
-        while (self.pos < len and isIdentCont(self.src[self.pos])) {
-            self.pos += 1;
+        self.advance(); // eat '#'
+        while (self.pos < self.src.len) {
+            const ch = self.src[self.pos];
+            if (std.ascii.isAlphanumeric(ch) or ch == '_' or ch == '$') {
+                self.pos += 1;
+            } else break;
         }
         return .{ .kind = .private_name, .span = self.spanFrom(start, sl, sc), .raw = self.src[start..self.pos] };
     }
@@ -443,18 +344,11 @@ pub const Lexer = struct {
         const start = self.pos;
         const sl = self.line;
         const sc = self.col();
-        const len = self.src.len;
-        while (self.pos < len) {
+        while (self.pos < self.src.len) {
             const c = self.src[self.pos];
-            if ((char_table[c] & CHAR_IDENT_CONT) != 0) {
+            if (std.ascii.isAlphanumeric(c) or c == '_' or c == '$' or c > 127) {
                 self.pos += 1;
-                continue;
-            }
-            if (c > 127) {
-                self.pos += 1;
-                continue;
-            }
-            break;
+            } else break;
         }
         const raw = self.src[start..self.pos];
         const kind = tok.lookupKeyword(raw) orelse .ident;
@@ -495,15 +389,14 @@ pub const Lexer = struct {
         const start = self.pos;
         const sl = self.line;
         const sc = self.col();
-        self.pos += 1;
-        const len = self.src.len;
+        self.advance();
 
         var in_class = false;
         var closed = false;
-        while (self.pos < len) {
+        while (self.pos < self.src.len) {
             const c = self.src[self.pos];
             if (c == '\\') {
-                if (self.pos + 1 < len) {
+                if (self.pos + 1 < self.src.len) {
                     self.pos += 2;
                 } else {
                     self.pos += 1;
@@ -524,7 +417,7 @@ pub const Lexer = struct {
             if (c == '/' and !in_class) {
                 self.pos += 1;
                 closed = true;
-                while (self.pos < len and isAlpha(self.src[self.pos])) {
+                while (self.pos < self.src.len and std.ascii.isAlphabetic(self.src[self.pos])) {
                     self.pos += 1;
                 }
                 break;
@@ -559,68 +452,64 @@ pub const Lexer = struct {
             };
         }
 
-        const c0 = self.src[self.pos];
-
-        if (c0 == '/') {
-            if (self.pos + 1 < self.src.len) {
-                const c1 = self.src[self.pos + 1];
-                if (c1 == '/') {
-                    const start = self.pos;
-                    const sl = self.line;
-                    const sc = self.col();
-                    self.skipLineComment();
-                    self.pushPendingComment(start, sl, sc);
-                    return self.nextInner();
-                }
-                if (c1 == '*') {
-                    const start = self.pos;
-                    const sl = self.line;
-                    const sc = self.col();
-                    const closed = self.skipBlockComment();
-                    if (!closed) {
-                        self.pos = start + 2;
-                        return .{ .kind = .invalid, .span = self.spanFrom(start, sl, sc), .raw = self.src[start..self.pos] };
-                    }
-                    self.pushPendingComment(start, sl, sc);
-                    return self.nextInner();
-                }
+        if (self.cur() == '/' and self.peek1() == '/') {
+            const start = self.pos;
+            const sl = self.line;
+            const sc = self.col();
+            self.skipLineComment();
+            self.pushPendingComment(start, sl, sc);
+            return self.nextInner();
+        }
+        if (self.cur() == '/' and self.peek1() == '*') {
+            const start = self.pos;
+            const sl = self.line;
+            const sc = self.col();
+            const closed = self.skipBlockComment();
+            if (!closed) {
+                self.pos = start + 2;
+                return .{ .kind = .invalid, .span = self.spanFrom(start, sl, sc), .raw = self.src[start..self.pos] };
             }
+            self.pushPendingComment(start, sl, sc);
+            return self.nextInner();
         }
 
         const start = self.pos;
         const sl = self.line;
         const sc = self.col();
+        const c = self.src[self.pos];
 
-        if (self.mode == .jsx and c0 == '/') {
-            self.pos += 1;
+        if (self.mode == .jsx and c == '/') {
+            self.advance();
             return .{ .kind = .slash, .span = self.spanFrom(start, sl, sc), .raw = self.src[start..self.pos] };
         }
 
-        if (c0 == '"' or c0 == '\'') return self.readString(c0);
-        if (c0 == '`') return self.readTemplate();
-        if (c0 == '/' and self.canStartRegex()) return self.readRegex();
+        if (c == '"' or c == '\'') return self.readString(c);
+        if (c == '`') return self.readTemplate();
+        if (c == '/' and self.canStartRegex()) return self.readRegex();
 
-        if (isDigit(c0) or (c0 == '.' and self.pos + 1 < self.src.len and isDigit(self.src[self.pos + 1]))) {
+        if (std.ascii.isDigit(c) or (c == '.' and self.pos + 1 < self.src.len and std.ascii.isDigit(self.src[self.pos + 1]))) {
             return self.readNumber();
         }
 
-        if (isIdentStart(c0)) {
+        if (std.ascii.isAlphabetic(c) or c == '_' or c == '$' or c > 127) {
             return self.readIdent();
         }
 
-        if (c0 == '#' and self.pos + 1 < self.src.len and isIdentStart(self.src[self.pos + 1])) {
+        if (c == '#' and self.pos + 1 < self.src.len and (std.ascii.isAlphabetic(self.src[self.pos + 1]) or self.src[self.pos + 1] == '_')) {
             return self.readPrivateName();
         }
 
-        if (c0 == '}' and self.template_depth > 0 and self.brace_depth == self.template_stack[self.template_depth - 1]) {
+        // Handle } before generic advance: may need to continue a template literal
+        if (c == '}' and self.template_depth > 0 and self.brace_depth == self.template_stack[self.template_depth - 1]) {
             self.template_depth -= 1;
+            // do NOT advance; readTemplateMiddleOrTail starts from } and includes it in raw
             return self.readTemplateMiddleOrTail();
         }
 
-        self.pos += 1;
+        self.advance();
         const sp = self.spanFrom(start, sl, sc);
 
-        const kind: TokenKind = switch (c0) {
+        const kind: TokenKind = switch (c) {
             '(' => .lparen,
             ')' => .rparen,
             '{' => blk: {
@@ -646,15 +535,14 @@ pub const Lexer = struct {
                 break :blk .dot;
             },
             '?' => blk: {
-                const n = self.cur();
-                if (n == '.') {
-                    self.pos += 1;
+                if (self.cur() == '.') {
+                    self.advance();
                     break :blk .question_dot;
                 }
-                if (n == '?') {
-                    self.pos += 1;
+                if (self.cur() == '?') {
+                    self.advance();
                     if (self.cur() == '=') {
-                        self.pos += 1;
+                        self.advance();
                         break :blk .question2_eq;
                     }
                     break :blk .question2;
@@ -662,15 +550,14 @@ pub const Lexer = struct {
                 break :blk .question;
             },
             '=' => blk: {
-                const n = self.cur();
-                if (n == '>') {
-                    self.pos += 1;
+                if (self.cur() == '>') {
+                    self.advance();
                     break :blk .arrow;
                 }
-                if (n == '=') {
-                    self.pos += 1;
+                if (self.cur() == '=') {
+                    self.advance();
                     if (self.cur() == '=') {
-                        self.pos += 1;
+                        self.advance();
                         break :blk .eq3;
                     }
                     break :blk .eq2;
@@ -678,11 +565,10 @@ pub const Lexer = struct {
                 break :blk .eq;
             },
             '!' => blk: {
-                const n = self.cur();
-                if (n == '=') {
-                    self.pos += 1;
+                if (self.cur() == '=') {
+                    self.advance();
                     if (self.cur() == '=') {
-                        self.pos += 1;
+                        self.advance();
                         break :blk .bang_eq2;
                     }
                     break :blk .bang_eq;
@@ -690,135 +576,127 @@ pub const Lexer = struct {
                 break :blk .bang;
             },
             '+' => blk: {
-                const n = self.cur();
-                if (n == '+') {
-                    self.pos += 1;
+                if (self.cur() == '+') {
+                    self.advance();
                     break :blk .plus2;
                 }
-                if (n == '=') {
-                    self.pos += 1;
+                if (self.cur() == '=') {
+                    self.advance();
                     break :blk .plus_eq;
                 }
                 break :blk .plus;
             },
             '-' => blk: {
-                const n = self.cur();
-                if (n == '-') {
-                    self.pos += 1;
+                if (self.cur() == '-') {
+                    self.advance();
                     break :blk .minus2;
                 }
-                if (n == '=') {
-                    self.pos += 1;
+                if (self.cur() == '=') {
+                    self.advance();
                     break :blk .minus_eq;
                 }
                 break :blk .minus;
             },
             '*' => blk: {
-                const n = self.cur();
-                if (n == '*') {
-                    self.pos += 1;
+                if (self.cur() == '*') {
+                    self.advance();
                     if (self.cur() == '=') {
-                        self.pos += 1;
+                        self.advance();
                         break :blk .star2_eq;
                     }
                     break :blk .star2;
                 }
-                if (n == '=') {
-                    self.pos += 1;
+                if (self.cur() == '=') {
+                    self.advance();
                     break :blk .star_eq;
                 }
                 break :blk .star;
             },
             '/' => blk: {
                 if (self.cur() == '=') {
-                    self.pos += 1;
+                    self.advance();
                     break :blk .slash_eq;
                 }
                 break :blk .slash;
             },
             '%' => blk: {
                 if (self.cur() == '=') {
-                    self.pos += 1;
+                    self.advance();
                     break :blk .percent_eq;
                 }
                 break :blk .percent;
             },
             '<' => blk: {
-                const n = self.cur();
-                if (n == '<') {
-                    self.pos += 1;
+                if (self.cur() == '<') {
+                    self.advance();
                     if (self.cur() == '=') {
-                        self.pos += 1;
+                        self.advance();
                         break :blk .lt2_eq;
                     }
                     break :blk .lt2;
                 }
-                if (n == '=') {
-                    self.pos += 1;
+                if (self.cur() == '=') {
+                    self.advance();
                     break :blk .lt_eq;
                 }
                 break :blk .lt;
             },
             '>' => blk: {
-                const n = self.cur();
-                if (n == '>') {
-                    self.pos += 1;
-                    const n2 = self.cur();
-                    if (n2 == '>') {
-                        self.pos += 1;
+                if (self.cur() == '>') {
+                    self.advance();
+                    if (self.cur() == '>') {
+                        self.advance();
                         if (self.cur() == '=') {
-                            self.pos += 1;
+                            self.advance();
                             break :blk .gt3_eq;
                         }
                         break :blk .gt3;
                     }
-                    if (n2 == '=') {
-                        self.pos += 1;
+                    if (self.cur() == '=') {
+                        self.advance();
                         break :blk .gt2_eq;
                     }
                     break :blk .gt2;
                 }
-                if (n == '=') {
-                    self.pos += 1;
+                if (self.cur() == '=') {
+                    self.advance();
                     break :blk .gt_eq;
                 }
                 break :blk .gt;
             },
             '&' => blk: {
-                const n = self.cur();
-                if (n == '&') {
-                    self.pos += 1;
+                if (self.cur() == '&') {
+                    self.advance();
                     if (self.cur() == '=') {
-                        self.pos += 1;
+                        self.advance();
                         break :blk .amp2_eq;
                     }
                     break :blk .amp2;
                 }
-                if (n == '=') {
-                    self.pos += 1;
+                if (self.cur() == '=') {
+                    self.advance();
                     break :blk .amp_eq;
                 }
                 break :blk .amp;
             },
             '|' => blk: {
-                const n = self.cur();
-                if (n == '|') {
-                    self.pos += 1;
+                if (self.cur() == '|') {
+                    self.advance();
                     if (self.cur() == '=') {
-                        self.pos += 1;
+                        self.advance();
                         break :blk .pipe2_eq;
                     }
                     break :blk .pipe2;
                 }
-                if (n == '=') {
-                    self.pos += 1;
+                if (self.cur() == '=') {
+                    self.advance();
                     break :blk .pipe_eq;
                 }
                 break :blk .pipe;
             },
             '^' => blk: {
                 if (self.cur() == '=') {
-                    self.pos += 1;
+                    self.advance();
                     break :blk .caret_eq;
                 }
                 break :blk .caret;

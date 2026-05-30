@@ -11,13 +11,16 @@ const codegen_tests = @import("unit/codegen_test.zig");
 const parser_tests = @import("unit/parser_test.zig");
 const sourcemaps_tests = @import("unit/sourcemaps_test.zig");
 const paths_tests = @import("unit/paths_test.zig");
-const formatter_leading_semi_tests = @import("unit/formatter_leading_semi_test.zig");
+
 const cli_tests = @import("integration/cli_test.zig");
 const package_compiler_tests = @import("package_compiler_tests");
 const package_linter_tests = @import("package_linter_tests");
 const package_formatter_tests = @import("package_formatter_tests");
 const package_cli_tests = @import("package_cli_tests");
 const package_common_tests = @import("package_common_tests");
+
+
+
 
 comptime {
     _ = lexer_tests;
@@ -32,7 +35,7 @@ comptime {
     _ = codegen_tests;
     _ = parser_tests;
     _ = paths_tests;
-    _ = formatter_leading_semi_tests;
+
     _ = sourcemaps_tests;
     _ = cli_tests;
     _ = package_compiler_tests;

@@ -7,7 +7,7 @@ const module_interop = @import("module_interop");
 const Span = lexer.token.Span;
 const NodeId = ast.NodeId;
 
-pub const ModuleTarget = enum { esm };
+pub const ModuleTarget = enum { esm, cjs };
 pub const ImportInterop = module_interop.ImportInterop;
 pub const transformEsmInterop = module_interop.transformEsmInterop;
 pub const ensureUseStrict = module_interop.ensureUseStrict;

@@ -64,7 +64,9 @@ pub const CacheStore = struct {
         const cache_path = try std.fs.path.join(alloc, &.{ self.cache_dir, "cache.txt" });
         defer alloc.free(cache_path);
 
-        std.Io.Dir.cwd().createDirPath(io, self.cache_dir) catch {};
+        std.Io.Dir.cwd().createDirPath(io, self.cache_dir) catch |err| {
+            std.log.warn("cache: failed to create cache dir: {}", .{err});
+        };
 
         var lines = std.ArrayList(u8).init(alloc);
         defer lines.deinit();

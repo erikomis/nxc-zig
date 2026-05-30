@@ -4,7 +4,8 @@ export enum ProductGenderEnum {
 }
 
 export class SearchOptionsDto {
-  public: ProductGenderEnum[];
+  public!: ProductGenderEnum[];
 }
 
 const value = ProductGenderEnum.MALE;
+

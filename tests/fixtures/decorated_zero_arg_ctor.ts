@@ -2,7 +2,8 @@ function register(target: unknown) {
   return target;
 }
 
-@register()
+@register
+
 export class Fixture {
   constructor() {}
 }

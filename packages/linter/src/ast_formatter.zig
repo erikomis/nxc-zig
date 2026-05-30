@@ -1,6 +1,9 @@
 const std = @import("std");
 const common = @import("common");
 
+// SYNC: Keep in sync with packages/formatter/src/ast_formatter.zig
+// Differences: formatter copy has 10 extra comment lines in formatAst for blank line/comment ordering.
+// Any bug fix applied here should be mirrored in the formatter copy.
 const ast = @import("ast.zig");
 const parser = @import("parser.zig");
 const lexer = @import("lexer.zig");
@@ -39,11 +42,9 @@ pub fn formatAst(source: []const u8, options: FormatterOptions, alloc: std.mem.A
         arena_backing.deinit();
         return null;
     };
-    var buf = std.ArrayListUnmanaged(u8).empty;
-    try buf.ensureTotalCapacity(alloc, source.len + source.len / 2);
     var fmtr = Formatter{
         .arena = &node_arena,
-        .buf = buf,
+        .buf = .empty,
         .alloc = alloc,
         .indent_level = 0,
         .col = 0,
@@ -77,33 +78,29 @@ const Formatter = struct {
     comment_index: usize,
     pending_newlines: usize,
     in_jsx_attr: bool = false,
-    needs_leading_semicolon: bool = false,
-    skip_next_newline: bool = false,
+
 
     fn flushPendingNewlines(self: *Formatter) !void {
         if (self.pending_newlines == 0) return;
 
-        const eol: []const u8 = switch (self.opts.endOfLine) {
+        const eol = switch (self.opts.endOfLine) {
             .lf, .auto => "\n",
             .crlf => "\r\n",
             .cr => "\r",
         };
-        if (eol.len == 1) {
-            try self.buf.appendNTimes(self.alloc, eol[0], self.pending_newlines);
-        } else {
-            var i: usize = 0;
-            while (i < self.pending_newlines) : (i += 1) {
-                try self.buf.appendSlice(self.alloc, eol);
-            }
+        var i: usize = 0;
+        while (i < self.pending_newlines) : (i += 1) {
+            try self.buf.appendSlice(self.alloc, eol);
         }
 
         self.pending_newlines = 0;
         self.col = 0;
 
+        var j: usize = 0;
+        const indent_str: u8 = if (self.opts.useTabs) '\t' else ' ';
         const indent_count = if (self.opts.useTabs) self.indent_level else self.indent_level * self.opts.tabWidth;
-        if (indent_count > 0) {
-            const indent_char: u8 = if (self.opts.useTabs) '\t' else ' ';
-            try self.buf.appendNTimes(self.alloc, indent_char, indent_count);
+        while (j < indent_count) : (j += 1) {
+            try self.buf.append(self.alloc, indent_str);
         }
         self.col = indent_count;
     }
@@ -235,59 +232,44 @@ const Formatter = struct {
         return false;
     }
 
-    fn findClosingDelimiter(self: *const Formatter, open_pos: u32, open: u8, close: u8) ?u32 {
-        const start = @as(usize, open_pos);
-        if (start >= self.src.len or self.src[start] != open) return null;
+    fn findClosingBrace(self: *const Formatter, open_pos: u32) ?u32 {
+        if (@as(usize, open_pos) >= self.src.len or self.src[open_pos] != '{') return null;
 
+        var lx = lexer.Lexer.init(self.src[open_pos..]);
         var depth: usize = 0;
-        var i: usize = start;
-        const len = self.src.len;
-        while (i < len) : (i += 1) {
-            const c = self.src[i];
-            if (c == '"' or c == '\'') {
-                const q = c;
-                i += 1;
-                while (i < len and self.src[i] != q) {
-                    if (self.src[i] == '\\') i += 1;
-                    i += 1;
-                }
-                continue;
-            }
-            if (c == '`') {
-                i += 1;
-                while (i < len and self.src[i] != '`') {
-                    if (self.src[i] == '\\') i += 1;
-                    i += 1;
-                }
-                continue;
-            }
-            if (c == '/' and i + 1 < len) {
-                if (self.src[i + 1] == '/') {
-                    while (i < len and self.src[i] != '\n') i += 1;
-                    continue;
-                }
-                if (self.src[i + 1] == '*') {
-                    i += 2;
-                    while (i + 1 < len and !(self.src[i] == '*' and self.src[i + 1] == '/')) i += 1;
-                    i += 1;
-                    continue;
-                }
-            }
-            if (c == open) depth += 1;
-            if (c == close) {
-                depth -= 1;
-                if (depth == 0) return @intCast(i);
+        while (true) {
+            const tok = lx.next();
+            switch (tok.kind) {
+                .eof => return null,
+                .lbrace => depth += 1,
+                .rbrace => {
+                    if (depth == 0) return null;
+                    depth -= 1;
+                    if (depth == 0) return open_pos + tok.span.start;
+                },
+                else => {},
             }
         }
-        return null;
     }
 
-    fn findClosingBrace(self: *const Formatter, p: u32) ?u32 {
-        return self.findClosingDelimiter(p, '{', '}');
-    }
+    fn findClosingBracket(self: *const Formatter, open_pos: u32) ?u32 {
+        if (@as(usize, open_pos) >= self.src.len or self.src[open_pos] != '[') return null;
 
-    fn findClosingBracket(self: *const Formatter, p: u32) ?u32 {
-        return self.findClosingDelimiter(p, '[', ']');
+        var lx = lexer.Lexer.init(self.src[open_pos..]);
+        var depth: usize = 0;
+        while (true) {
+            const tok = lx.next();
+            switch (tok.kind) {
+                .eof => return null,
+                .lbracket => depth += 1,
+                .rbracket => {
+                    if (depth == 0) return null;
+                    depth -= 1;
+                    if (depth == 0) return open_pos + tok.span.start;
+                },
+                else => {},
+            }
+        }
     }
 
     fn lineOf(self: *const Formatter, pos: u32) usize {
@@ -320,8 +302,6 @@ const Formatter = struct {
         const from = @min(@as(usize, prev_start), to);
         if (from >= to) { self.pending_newlines = @max(1, self.pending_newlines); return; }
 
-        const skip_newline = self.skip_next_newline;
-        self.skip_next_newline = false;
 
         var pos = from;
         var emitted_any = false;
@@ -388,7 +368,8 @@ const Formatter = struct {
         if (!emitted_any) {
             if (trailing_blanks > 0) {
                 self.pending_newlines = @max(self.pending_newlines, 1 + trailing_blanks);
-            } else if (!skip_newline) {
+            } else {
+
                 self.pending_newlines = @max(self.pending_newlines, 1);
             }
         } else {
@@ -419,9 +400,8 @@ const Formatter = struct {
                 try self.gen(s.expr);
                 if (self.opts.semi) try self.w(";");
             },
-            .empty_stmt => {
-                if (self.needs_leading_semicolon) try self.w(";");
-            },
+            .empty_stmt => {},
+
             .raw_js => |r| try self.w(r.code),
             .var_decl => |v| try self.genVarDecl(v),
             .fn_decl => |f| try self.genFnDecl(f),
@@ -567,15 +547,8 @@ const Formatter = struct {
             if (i > 0) {
                 try self.separateStatements(prev_stmt_start, stmt_start);
             }
-            if (stmt_node.* == .empty_stmt and i + 1 < p.body.len) {
-                const next_node = self.arena.get(p.body[i + 1]);
-                self.needs_leading_semicolon = self.needsLeadingSemicolon(next_node);
-                if (self.needs_leading_semicolon) {
-                    self.skip_next_newline = true;
-                }
-            }
             try self.gen(stmt);
-            self.needs_leading_semicolon = false;
+
             prev_stmt_start = stmt_start;
         }
         try self.emitRemainingComments();
@@ -593,15 +566,8 @@ const Formatter = struct {
             } else {
                 try self.separateStatements(prev_stmt_start, stmt_start);
             }
-            if (stmt_node.* == .empty_stmt and i + 1 < b.body.len) {
-                const next_node = self.arena.get(b.body[i + 1]);
-                self.needs_leading_semicolon = self.needsLeadingSemicolon(next_node);
-                if (self.needs_leading_semicolon) {
-                    self.skip_next_newline = true;
-                }
-            }
             try self.gen(stmt);
-            self.needs_leading_semicolon = false;
+
             prev_stmt_start = stmt_start;
         }
         if (self.findClosingBrace(b.span.start)) |close_brace| {
@@ -1322,34 +1288,6 @@ const Formatter = struct {
         };
     }
 
-    fn needsLeadingSemicolon(self: *const Formatter, stmt_node: *const Node) bool {
-        const expr = switch (stmt_node.*) {
-            .expr_stmt => |s| self.arena.get(s.expr),
-            .var_decl => |v| if (v.declarators.len > 0) self.arena.get(v.declarators[0].id) else return false,
-            else => return false,
-        };
-        return self.exprStartsWithASISensitive(expr);
-    }
-
-    fn exprStartsWithASISensitive(self: *const Formatter, node: *const Node) bool {
-        return switch (node.*) {
-            .call_expr => |c| blk: {
-                const callee = self.arena.get(c.callee);
-                break :blk calleeNeedsParens(callee) or self.exprStartsWithASISensitive(callee);
-            },
-            .member_expr => |m| self.exprStartsWithASISensitive(self.arena.get(m.object)),
-            .array_expr => true,
-            .template_lit => true,
-            .tagged_template => true,
-            .seq_expr => |s| if (s.exprs.len > 0) self.exprStartsWithASISensitive(self.arena.get(s.exprs[0])) else false,
-            .unary_expr => |u| switch (u.op) {
-                .plus, .minus => true,
-                else => false,
-            },
-            .update_expr => |u| u.prefix,
-            else => false,
-        };
-    }
 
     fn genCall(self: *Formatter, c: ast.CallExpr) !void {
         const wrap_callee = calleeNeedsParens(self.arena.get(c.callee));

@@ -30,6 +30,19 @@ pub fn stripTypes(arena: *ast.Arena, alloc: std.mem.Allocator) !void {
 
     try collectConstEnums(arena, alloc, &const_enums);
 
+    // Track exported declarations — const enums that are exported must be kept
+    var exported = std.AutoHashMapUnmanaged(u32, void).empty;
+    defer exported.deinit(alloc);
+    for (arena.nodes.items) |node| {
+        if (node == .export_decl) {
+            switch (node.export_decl.kind) {
+                .decl => |id| try exported.put(alloc, @intCast(id), {}),
+                .default_decl => |id| try exported.put(alloc, @intCast(id), {}),
+                else => {},
+            }
+        }
+    }
+
     var i: u32 = 0;
     while (i < arena.nodes.items.len) : (i += 1) {
         const node = arena.getMut(i);
@@ -38,7 +51,7 @@ pub fn stripTypes(arena: *ast.Arena, alloc: std.mem.Allocator) !void {
                 node.* = .{ .empty_stmt = .{ .span = node.span() } };
             },
             .ts_enum => |e| {
-                if (e.is_const) {
+                if (e.is_const and !exported.contains(@intCast(i))) {
                     node.* = .{ .empty_stmt = .{ .span = e.span } };
                 }
             },

@@ -8,12 +8,13 @@ export const isLengthAwareAsyncIterable = <T>(
   return !!value && typeof value === "object" && "length" in value;
 };
 
-// Type predicate with generic type
-export const isLengthAwareIterable = <T>(
-  value: unknown,
-): value is LengthAwareIterable<T> => {
+// Type predicate with double-cast generic function type
+export const isLengthAwareIterable = ((value: unknown) => {
   return !!value && typeof value === "object" && "length" in value;
-};
+}) as unknown as <T = any>(
+  value: unknown,
+) => value is LengthAwareIterable<T>;
+
 
 // Simple type predicate (no generics)
 export function isString(value: unknown): value is string {
