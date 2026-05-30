@@ -257,6 +257,7 @@ fn lintWithEnv(source: []const u8, filename: []const u8, registry: Registry, env
     for (registry.rules.items) |rule| {
         if (rule.fix) |fix_fn| {
             if (rule.severity == .off) continue;
+            if (program_id == null) continue;
             try fix_fn(.{
                 .source = source,
                 .filename = filename,
@@ -264,8 +265,8 @@ fn lintWithEnv(source: []const u8, filename: []const u8, registry: Registry, env
                 .alloc = alloc,
                 .diagnostics = &diagnostics,
                 .fixes = &fixes,
-                .ast_arena = if (program_id != null) @ptrCast(&node_arena) else null,
-                .ast_program_id = if (program_id) |pid| @as(u32, pid) else null,
+                .ast_arena = @ptrCast(&node_arena),
+                .ast_program_id = @as(u32, program_id.?),
             }, rule);
         }
     }
@@ -279,8 +280,11 @@ fn lintWithEnv(source: []const u8, filename: []const u8, registry: Registry, env
         }.lessThan);
 
         var total_len: usize = source.len;
+        var prev_src: usize = 0;
         for (fixes.items) |f| {
+            if (f.start < prev_src) continue;
             total_len = total_len - (f.end - f.start) + f.replacement.len;
+            prev_src = f.start;
         }
 
         var result = try alloc.alloc(u8, total_len);
@@ -288,6 +292,7 @@ fn lintWithEnv(source: []const u8, filename: []const u8, registry: Registry, env
         var src: usize = 0;
 
         for (fixes.items) |f| {
+            if (f.start < src) continue;
             const before_len = f.start - src;
             @memcpy(result[dst..][0..before_len], source[src..][0..before_len]);
             dst += before_len;

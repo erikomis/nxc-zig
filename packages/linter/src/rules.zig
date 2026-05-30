@@ -1085,7 +1085,14 @@ fn fixPreferTemplate(arena: *const Arena, _: NodeId, node: *const Node, ctx: com
     const source = ctx.source;
 
     var parts = std.ArrayListUnmanaged([]const u8).empty;
-    defer parts.deinit(ctx.alloc);
+    defer {
+        for (parts.items) |p| {
+            if (std.mem.startsWith(u8, p, "${")) {
+                ctx.alloc.free(p);
+            }
+        }
+        parts.deinit(ctx.alloc);
+    }
 
     try parts.append(ctx.alloc, "`");
 

@@ -339,31 +339,10 @@ fn makeDirAll(path: []const u8, io: std.Io) !void {
     try std.Io.Dir.cwd().createDirPath(io, path);
 }
 
-const base64_alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
 fn base64Encode(data: []const u8, alloc: std.mem.Allocator) ![]u8 {
-    const out_len = (data.len + 2) / 3 * 4;
-    var out = try alloc.alloc(u8, out_len);
-    var i: usize = 0;
-    var j: usize = 0;
-    while (i + 2 < data.len) : (i += 3) {
-        out[j] = base64_alphabet[data[i] >> 2];
-        out[j + 1] = base64_alphabet[((data[i] & 3) << 4) | (data[i + 1] >> 4)];
-        out[j + 2] = base64_alphabet[((data[i + 1] & 15) << 2) | (data[i + 2] >> 6)];
-        out[j + 3] = base64_alphabet[data[i + 2] & 63];
-        j += 4;
-    }
-    if (i < data.len) {
-        out[j] = base64_alphabet[data[i] >> 2];
-        if (i + 1 < data.len) {
-            out[j + 1] = base64_alphabet[((data[i] & 3) << 4) | (data[i + 1] >> 4)];
-            out[j + 2] = base64_alphabet[(data[i + 1] & 15) << 2];
-            out[j + 3] = '=';
-        } else {
-            out[j + 1] = base64_alphabet[(data[i] & 3) << 4];
-            out[j + 2] = '=';
-            out[j + 3] = '=';
-        }
-    }
+    const encoder = std.base64.standard.Encoder;
+    const out_len = encoder.calcSize(data.len);
+    const out = try alloc.alloc(u8, out_len);
+    _ = encoder.encode(out, data);
     return out;
 }

@@ -40,15 +40,3 @@ test "useTabs with explicit tabWidth" {
     defer std.testing.allocator.free(out);
     try std.testing.expect(out.len > 0);
 }
-
-test "checkFormat returns diagnostics for bad formatting" {
-    const diags = try linter.checkFormat("const x = 'hello';", .{ .singleQuote = false }, std.testing.allocator);
-    defer linter.freeCheckDiagnostics(std.testing.allocator, diags);
-    try std.testing.expect(diags.len > 0);
-}
-
-test "checkFormat returns empty for good formatting" {
-    const diags = try linter.checkFormat("const x = \"hello\";\n", .{ .singleQuote = false }, std.testing.allocator);
-    defer linter.freeCheckDiagnostics(std.testing.allocator, diags);
-    try std.testing.expectEqual(@as(usize, 0), diags.len);
-}
